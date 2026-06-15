@@ -412,9 +412,20 @@ class ServicePlacementReview(Job):
         )
 
     def generate_review(self, prompt: str) -> PlacementReviewResult:
-        url = os.environ.get("SERVICE_PLACEMENT_REVIEW_URL", "http://localhost:11434/api/generate")
-        model = os.environ.get("SERVICE_PLACEMENT_REVIEW_MODEL", "llama3.1:8b")
-        timeout_raw = os.environ.get("SERVICE_PLACEMENT_REVIEW_TIMEOUT", "45")
+        url = (
+            os.environ.get("SERVICE_PLACEMENT_REVIEW_URL")
+            or os.environ.get("AI_RESOURCE_REVIEW_URL")
+            or "http://localhost:11434/api/generate"
+        )
+        model = (
+            os.environ.get("SERVICE_PLACEMENT_REVIEW_MODEL")
+            or os.environ.get("AI_RESOURCE_REVIEW_MODEL")
+            or "llama3.1:8b"
+        )
+        timeout_raw = os.environ.get("SERVICE_PLACEMENT_REVIEW_TIMEOUT") or os.environ.get(
+            "AI_RESOURCE_REVIEW_TIMEOUT",
+            "45",
+        )
         log_prompt = os.environ.get("SERVICE_PLACEMENT_REVIEW_LOG_PROMPT", "").lower() in {"1", "true", "yes", "on"}
 
         try:
