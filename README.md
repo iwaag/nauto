@@ -100,6 +100,8 @@ The AI resource review Job Hook uses these Nautobot server environment variables
 AI_RESOURCE_REVIEW_URL=http://localhost:11434/api/generate
 AI_RESOURCE_REVIEW_MODEL=llama3.1:8b
 AI_RESOURCE_REVIEW_TIMEOUT=30
+# Optional, for debugging prompt/model behavior. Logs a bounded prompt preview.
+AI_RESOURCE_REVIEW_LOG_PROMPT=false
 ```
 
 After syncing this repository and running `Seed Home Cluster` with `dry_run=false`, create a Nautobot Job Hook for `dcim.device` create and update events and select the `AI Resource Review` job. The job stores the LLM output in `ai_resource_review` and skips regeneration when the selected source facts have not changed.

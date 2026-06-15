@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -38,6 +39,14 @@ INPUT_CUSTOM_FIELDS = (
 )
 
 MAX_REVIEW_LENGTH = 2000
+MAX_LOG_PREVIEW_LENGTH = 500
+
+
+@dataclass(frozen=True)
+class LLMReviewResult:
+    model: str
+    review: str
+    metadata: dict[str, Any]
 
 
 def _plain_value(value: Any) -> Any:
@@ -84,6 +93,35 @@ def _validated_save(obj: Any) -> None:
         obj.save()
 
 
+def _truncate_for_log(value: Any, max_length: int = MAX_LOG_PREVIEW_LENGTH) -> str:
+    text = str(value or "")
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3].rstrip() + "..."
+
+
+def _response_metadata(body: dict[str, Any]) -> dict[str, Any]:
+    review = body.get("response")
+    thinking = body.get("thinking")
+    metadata: dict[str, Any] = {
+        "response_length": len(review) if isinstance(review, str) else None,
+        "thinking_length": len(thinking) if isinstance(thinking, str) else None,
+        "done": body.get("done"),
+        "done_reason": body.get("done_reason"),
+        "error": body.get("error"),
+        "model": body.get("model"),
+        "created_at": body.get("created_at"),
+        "total_duration": body.get("total_duration"),
+        "load_duration": body.get("load_duration"),
+        "prompt_eval_count": body.get("prompt_eval_count"),
+        "prompt_eval_duration": body.get("prompt_eval_duration"),
+        "eval_count": body.get("eval_count"),
+        "eval_duration": body.get("eval_duration"),
+        "top_level_keys": sorted(str(key) for key in body),
+    }
+    return {key: value for key, value in metadata.items() if value is not None}
+
+
 class AIResourceReview(JobHookReceiver):
     """Create a concise agent-facing review for a Device resource."""
 
@@ -112,26 +150,35 @@ class AIResourceReview(JobHookReceiver):
 
         prompt = self.build_prompt(facts)
         try:
-            model, review = self.generate_review(prompt)
+            result = self.generate_review(prompt)
         except RuntimeError as exc:
             self.logger.warning("Could not generate AI resource review for %s: %s", changed_object.name, exc)
             return
 
-        if not review.strip():
-            self.logger.warning("LLM returned an empty review for %s; leaving Device unchanged.", changed_object.name)
+        if not result.review.strip():
+            self.logger.warning(
+                "LLM returned an empty review for %s; leaving Device unchanged. response_metadata=%s",
+                changed_object.name,
+                json.dumps(result.metadata, sort_keys=True, ensure_ascii=True),
+            )
             return
 
-        review = review.strip()
+        review = result.review.strip()
         if len(review) > MAX_REVIEW_LENGTH:
             review = review[: MAX_REVIEW_LENGTH - 3].rstrip() + "..."
 
         _set_custom_field(changed_object, REVIEW_FIELD, review)
         _set_custom_field(changed_object, REVIEW_UPDATED_AT_FIELD, datetime.now(timezone.utc).isoformat())
-        _set_custom_field(changed_object, REVIEW_MODEL_FIELD, model)
+        _set_custom_field(changed_object, REVIEW_MODEL_FIELD, result.model)
         _set_custom_field(changed_object, REVIEW_SOURCE_HASH_FIELD, source_hash)
         _validated_save(changed_object)
 
-        self.logger.info("Updated AI resource review for %s using %s.", changed_object.name, model)
+        self.logger.info(
+            "Updated AI resource review for %s using %s. response_metadata=%s",
+            changed_object.name,
+            result.model,
+            json.dumps(result.metadata, sort_keys=True, ensure_ascii=True),
+        )
 
     def build_facts(self, device) -> dict[str, Any]:
         cf_data = _custom_field_data(device)
@@ -169,10 +216,11 @@ class AIResourceReview(JobHookReceiver):
             f"Facts:\n{facts_text}\n"
         )
 
-    def generate_review(self, prompt: str) -> tuple[str, str]:
+    def generate_review(self, prompt: str) -> LLMReviewResult:
         url = os.environ.get("AI_RESOURCE_REVIEW_URL", "http://localhost:11434/api/generate")
         model = os.environ.get("AI_RESOURCE_REVIEW_MODEL", "llama3.1:8b")
         timeout_raw = os.environ.get("AI_RESOURCE_REVIEW_TIMEOUT", "30")
+        log_prompt = os.environ.get("AI_RESOURCE_REVIEW_LOG_PROMPT", "").lower() in {"1", "true", "yes", "on"}
 
         try:
             timeout = float(timeout_raw)
@@ -188,6 +236,18 @@ class AIResourceReview(JobHookReceiver):
                 "num_predict": 220,
             },
         }
+        prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        self.logger.info(
+            "Requesting AI resource review: url=%s model=%s timeout=%s prompt_chars=%s prompt_sha256=%s",
+            url,
+            model,
+            timeout,
+            len(prompt),
+            prompt_hash,
+        )
+        if log_prompt:
+            self.logger.info("AI resource review prompt preview: %s", _truncate_for_log(prompt, 4000))
+
         request = Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
@@ -213,5 +273,12 @@ class AIResourceReview(JobHookReceiver):
 
         review = body.get("response")
         if not isinstance(review, str):
-            raise RuntimeError("LLM endpoint JSON did not contain a string response field")
-        return model, review
+            metadata = _response_metadata(body)
+            raise RuntimeError(
+                "LLM endpoint JSON did not contain a string response field: "
+                + json.dumps(metadata, sort_keys=True, ensure_ascii=True)
+            )
+
+        metadata = _response_metadata(body)
+        metadata["response_preview"] = _truncate_for_log(review)
+        return LLMReviewResult(model=model, review=review, metadata=metadata)
