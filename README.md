@@ -65,6 +65,10 @@ The Device Custom Fields include:
 - `cpu_model`
 - `cpu_cores`
 - `memory_gb`
+- `gpu_count`
+- `gpu_models`
+- `gpu_memory_gb`
+- `gpu_accelerator_summary`
 - `disk_total_gb`
 - `serial_number`
 - `primary_mac_address`

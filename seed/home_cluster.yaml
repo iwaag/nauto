@@ -136,6 +136,34 @@ custom_fields:
     weight: 190
     content_types:
       - "dcim.device"
+  - key: "gpu_count"
+    label: "GPU Count"
+    type: "integer"
+    description: "Detected GPU accelerator count"
+    weight: 192
+    content_types:
+      - "dcim.device"
+  - key: "gpu_models"
+    label: "GPU Models"
+    type: "text"
+    description: "Detected GPU accelerator model names"
+    weight: 194
+    content_types:
+      - "dcim.device"
+  - key: "gpu_memory_gb"
+    label: "GPU Memory GB"
+    type: "text"
+    description: "Total detected dedicated GPU memory in GB, when available"
+    weight: 196
+    content_types:
+      - "dcim.device"
+  - key: "gpu_accelerator_summary"
+    label: "GPU Accelerator Summary"
+    type: "text"
+    description: "Compact deterministic GPU accelerator summary for automation agents and schedulers"
+    weight: 198
+    content_types:
+      - "dcim.device"
   - key: "disk_total_gb"
     label: "Disk Total GB"
     type: "text"
