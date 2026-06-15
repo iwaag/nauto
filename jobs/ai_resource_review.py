@@ -36,6 +36,15 @@ INPUT_CUSTOM_FIELDS = (
     "disk_total_gb",
     "last_seen",
     "purpose",
+    "service_roles",
+    "preferred_services",
+    "docker_engine_state",
+    "docker_container_running_count",
+    "docker_container_total_count",
+    "docker_compose_projects",
+    "docker_published_ports",
+    "docker_service_summary",
+    "service_inventory_updated_at",
 )
 
 MAX_REVIEW_LENGTH = 2000
@@ -215,7 +224,8 @@ class AIResourceReview(JobHookReceiver):
             "2. best_for: list suitable task types\n"
             "3. cautions: mention limitations or stale data only if relevant\n\n"
             "Use only the provided facts. Do not invent availability. "
-            "You may mention agent_task_state, but do not infer idleness from hardware specs.\n\n"
+            "You may mention agent_task_state and preferred service placement, but do not infer idleness "
+            "or live service capacity from hardware specs or Docker inventory.\n\n"
             f"Facts:\n{facts_text}\n"
         )
 

@@ -30,7 +30,7 @@ Nautobot Git Repository Jobs requirements:
 - The seed data used by the Job is stored at `seed/home_cluster.yaml`, relative to the repository root
 
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point.
-[jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device self-registration updates.
+[jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device self-registration updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
 
 Nautobot-side workflow:
 
@@ -80,9 +80,35 @@ The Device Custom Fields include:
 - `ai_resource_review_updated_at`
 - `ai_resource_review_model`
 - `ai_resource_review_source_hash`
+- `service_roles`
+- `preferred_services`
+- `docker_engine_state`
+- `docker_container_running_count`
+- `docker_container_total_count`
+- `docker_compose_projects`
+- `docker_published_ports`
+- `docker_service_summary`
+- `service_inventory_updated_at`
 - `inventory_raw_json`
 
 If the required Custom Fields do not exist in Nautobot, Device create/update calls can fail.
+
+Service placement fields are intended for relatively stable automation decisions, not high-frequency monitoring. For example, a Device can declare that `ollama` is normally available at `http://pc1:11434` with a `use_existing_first` startup policy. Live capacity checks such as GPU utilization, VRAM pressure, CPU load, and request latency should come from a monitoring system before an automation agent sends work to that endpoint.
+
+Example `preferred_services` value:
+
+```json
+{
+  "ollama": {
+    "service_role": "ai-inference",
+    "preferred": true,
+    "endpoint": "http://pc1:11434",
+    "startup_policy": "use_existing_first",
+    "fallback_policy": "start_new_if_capacity_available",
+    "managed_by": "systemd"
+  }
+}
+```
 
 ## Configuration
 

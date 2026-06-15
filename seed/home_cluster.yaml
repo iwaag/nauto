@@ -243,3 +243,66 @@ custom_fields:
     weight: 251
     content_types:
       - "dcim.device"
+  - key: "service_roles"
+    label: "Service Roles"
+    type: "text"
+    description: "Comma-separated stable service roles provided by this Device, such as ai-inference or automation-control"
+    weight: 252
+    content_types:
+      - "dcim.device"
+  - key: "preferred_services"
+    label: "Preferred Services"
+    type: "json"
+    description: "Stable service placement declarations and preferred endpoints for automation agents"
+    weight: 253
+    content_types:
+      - "dcim.device"
+  - key: "docker_engine_state"
+    label: "Docker Engine State"
+    type: "text"
+    description: "Recent self-reported Docker engine state"
+    weight: 254
+    content_types:
+      - "dcim.device"
+  - key: "docker_container_running_count"
+    label: "Docker Container Running Count"
+    type: "integer"
+    description: "Recent count of running Docker containers"
+    weight: 255
+    content_types:
+      - "dcim.device"
+  - key: "docker_container_total_count"
+    label: "Docker Container Total Count"
+    type: "integer"
+    description: "Recent count of all discovered Docker containers"
+    weight: 256
+    content_types:
+      - "dcim.device"
+  - key: "docker_compose_projects"
+    label: "Docker Compose Projects"
+    type: "text"
+    description: "Comma-separated compose project names discovered on this Device"
+    weight: 257
+    content_types:
+      - "dcim.device"
+  - key: "docker_published_ports"
+    label: "Docker Published Ports"
+    type: "text"
+    description: "Compact list of host ports published by local Docker containers"
+    weight: 258
+    content_types:
+      - "dcim.device"
+  - key: "docker_service_summary"
+    label: "Docker Service Summary"
+    type: "text"
+    description: "Compact scheduler-facing summary of important Docker services"
+    weight: 259
+    content_types:
+      - "dcim.device"
+  - key: "service_inventory_updated_at"
+    label: "Service Inventory Updated At"
+    type: "text"
+    description: "Timestamp when service and Docker facts were last collected"
+    weight: 260
+    content_types:
+      - "dcim.device"
