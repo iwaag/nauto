@@ -166,6 +166,20 @@ custom_fields:
     weight: 240
     content_types:
       - "dcim.device"
+  - key: "ai_resource_summary"
+    label: "AI Resource Summary"
+    type: "text"
+    description: "Compact deterministic capability summary for automation agents and schedulers"
+    weight: 245
+    content_types:
+      - "dcim.device"
+  - key: "agent_task_state"
+    label: "Agent Task State"
+    type: "text"
+    description: "Scheduler-owned state such as idle, busy, disabled, or maintenance"
+    weight: 248
+    content_types:
+      - "dcim.device"
   - key: "inventory_raw_json"
     label: "Inventory Raw JSON"
     type: "json"
