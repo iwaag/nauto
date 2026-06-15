@@ -1,24 +1,6 @@
-# Nautobot Self Register
+# Nauto
 
-This repository contains a host self-registration tool for Ubuntu/Linux and macOS systems. It collects local inventory data and creates or updates the current machine as a Nautobot Device.
-
-It also includes a Nautobot Job that seeds the prerequisite Nautobot objects from YAML, so the self-registration script can run against a clean Nautobot instance.
-
-## Supported Hosts
-
-- Ubuntu / Linux
-- macOS
-- Windows is not supported
-
-## Dependencies
-
-Install dependencies with `uv`:
-
-```bash
-uv sync
-```
-
-If you install dependencies directly with `pip`, install `psutil` and `PyYAML`.
+This repository is a Nautobot Git Repository that provides Jobs.
 
 ## Nautobot Setup
 
@@ -98,68 +80,11 @@ To adjust the prerequisite Nautobot objects:
 editor seed/home_cluster.yaml
 ```
 
-For host self-registration:
-
-```bash
-cp .env.example .env
-editor .env
-```
-
-`self_inventory.yaml` is optional. If no config file exists, the script registers the host with default values and locally detected inventory data.
-
-Default values:
-
-- Location: `Home`
-- Status: `Active`
-- Role: `linux-workstation` on Linux, `macos-workstation` on macOS
-- Tags: `self-registered`, `home`
-
-Create `self_inventory.yaml` only when you need local overrides:
-
-```bash
-cp example.self_inventory.yaml self_inventory.yaml
-editor self_inventory.yaml
-```
-
-Provide `NAUTOBOT_URL` and `NAUTOBOT_TOKEN` via `.env` or shell environment variables. When using `.env`, load it with `uv run --env-file .env ...`. Do not store API tokens directly in `self_inventory.yaml`.
-
-## Usage
-
-Print collected inventory:
-
-```bash
-uv run --env-file .env nautobot-self-register --json
-```
-
-Print the planned Nautobot Device payload:
-
-```bash
-uv run --env-file .env nautobot-self-register --dry-run
-```
-
-Create or update the Nautobot Device:
-
-```bash
-uv run --env-file .env nautobot-self-register --verbose
-```
-
-Existing Devices are matched by serial number first. If no serial number is available, the script falls back to the Device name, which defaults to the local hostname.
-
-## Scheduled Run Example
-
-Ubuntu cron example:
-
-```cron
-0 3 * * * cd /path/to/nautobot-home-inventory && uv run --env-file .env nautobot-self-register
-```
-
-Use an equivalent `launchd` schedule on macOS.
+Host-side scripts and their local configuration examples live in the separate `nodeutils` repository.
 
 ## Current Scope
 
-This is a Phase 1 implementation. It creates or updates the Nautobot Device and stores the main collected data in Device Custom Fields.
-
-Interface and IP Address creation in Nautobot IPAM is intentionally left for a later phase.
+This repository creates or updates prerequisite Nautobot objects for home inventory self-registration.
 
 ## Notes
 
