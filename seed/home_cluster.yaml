@@ -1,0 +1,175 @@
+location_types:
+  - name: "Home"
+    slug: "home"
+    content_types:
+      - "dcim.device"
+      - "dcim.rack"
+
+locations:
+  - name: "Home"
+    slug: "home"
+    location_type: "Home"
+    status: "Active"
+
+statuses:
+  - name: "Active"
+    slug: "active"
+    color: "4caf50"
+    content_types:
+      - "dcim.device"
+      - "dcim.location"
+
+roles:
+  - name: "linux-workstation"
+    slug: "linux-workstation"
+    color: "2196f3"
+    content_types:
+      - "dcim.device"
+  - name: "macos-workstation"
+    slug: "macos-workstation"
+    color: "9c27b0"
+    content_types:
+      - "dcim.device"
+  - name: "workstation"
+    slug: "workstation"
+    color: "607d8b"
+    content_types:
+      - "dcim.device"
+
+manufacturers:
+  - name: "Apple"
+    slug: "apple"
+  - name: "ASRock"
+    slug: "asrock"
+  - name: "Dell"
+    slug: "dell"
+  - name: "HP"
+    slug: "hp"
+  - name: "Intel"
+    slug: "intel"
+  - name: "Lenovo"
+    slug: "lenovo"
+  - name: "Generic"
+    slug: "generic"
+
+device_types:
+  - manufacturer: "Apple"
+    model: "Mac"
+    slug: "mac"
+  - manufacturer: "Generic"
+    model: "Ubuntu PC"
+    slug: "ubuntu-pc"
+
+tags:
+  - name: "self-registered"
+    slug: "self-registered"
+    color: "9e9e9e"
+    content_types:
+      - "dcim.device"
+  - name: "home"
+    slug: "home"
+    color: "607d8b"
+    content_types:
+      - "dcim.device"
+
+custom_fields:
+  - key: "owner"
+    label: "Owner"
+    type: "text"
+    description: "Self-reported owner"
+    weight: 100
+    content_types:
+      - "dcim.device"
+  - key: "purpose"
+    label: "Purpose"
+    type: "text"
+    description: "Self-reported purpose"
+    weight: 110
+    content_types:
+      - "dcim.device"
+  - key: "last_seen"
+    label: "Last Seen"
+    type: "text"
+    description: "Last successful self-registration timestamp"
+    weight: 120
+    content_types:
+      - "dcim.device"
+  - key: "os_name"
+    label: "OS Name"
+    type: "text"
+    weight: 130
+    content_types:
+      - "dcim.device"
+  - key: "os_version"
+    label: "OS Version"
+    type: "text"
+    weight: 140
+    content_types:
+      - "dcim.device"
+  - key: "kernel_version"
+    label: "Kernel Version"
+    type: "text"
+    weight: 150
+    content_types:
+      - "dcim.device"
+  - key: "architecture"
+    label: "Architecture"
+    type: "text"
+    weight: 160
+    content_types:
+      - "dcim.device"
+  - key: "cpu_model"
+    label: "CPU Model"
+    type: "text"
+    weight: 170
+    content_types:
+      - "dcim.device"
+  - key: "cpu_cores"
+    label: "CPU Cores"
+    type: "integer"
+    weight: 180
+    content_types:
+      - "dcim.device"
+  - key: "memory_gb"
+    label: "Memory GB"
+    type: "text"
+    weight: 190
+    content_types:
+      - "dcim.device"
+  - key: "disk_total_gb"
+    label: "Disk Total GB"
+    type: "text"
+    weight: 200
+    content_types:
+      - "dcim.device"
+  - key: "serial_number"
+    label: "Serial Number"
+    type: "text"
+    weight: 210
+    content_types:
+      - "dcim.device"
+  - key: "primary_mac_address"
+    label: "Primary MAC Address"
+    type: "text"
+    weight: 220
+    content_types:
+      - "dcim.device"
+  - key: "primary_ip_address"
+    label: "Primary IP Address"
+    type: "text"
+    weight: 230
+    content_types:
+      - "dcim.device"
+  - key: "inventory_source"
+    label: "Inventory Source"
+    type: "text"
+    weight: 240
+    content_types:
+      - "dcim.device"
+  - key: "inventory_raw_json"
+    label: "Inventory Raw JSON"
+    type: "json"
+    description: "Raw summary captured by the self-registration script"
+    weight: 250
+    content_types:
+      - "dcim.device"
