@@ -13,6 +13,7 @@ This repository is structured so it can be used as a Nautobot Git Repository tha
 ├── __init__.py
 ├── jobs
 │   ├── __init__.py
+│   ├── ai_resource_review.py
 │   └── seed_home_cluster.py
 └── seed
     └── home_cluster.yaml
@@ -29,6 +30,7 @@ Nautobot Git Repository Jobs requirements:
 - The seed data used by the Job is stored at `seed/home_cluster.yaml`, relative to the repository root
 
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point.
+[jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device self-registration updates.
 
 Nautobot-side workflow:
 
@@ -68,6 +70,12 @@ The Device Custom Fields include:
 - `primary_mac_address`
 - `primary_ip_address`
 - `inventory_source`
+- `ai_resource_summary`
+- `agent_task_state`
+- `ai_resource_review`
+- `ai_resource_review_updated_at`
+- `ai_resource_review_model`
+- `ai_resource_review_source_hash`
 - `inventory_raw_json`
 
 If the required Custom Fields do not exist in Nautobot, Device create/update calls can fail.
@@ -81,6 +89,16 @@ editor seed/home_cluster.yaml
 ```
 
 Host-side scripts and their local configuration examples live in the separate `nodeutils` repository.
+
+The AI resource review Job Hook uses these Nautobot server environment variables:
+
+```bash
+AI_RESOURCE_REVIEW_URL=http://localhost:11434/api/generate
+AI_RESOURCE_REVIEW_MODEL=llama3.1:8b
+AI_RESOURCE_REVIEW_TIMEOUT=30
+```
+
+After syncing this repository and running `Seed Home Cluster` with `dry_run=false`, create a Nautobot Job Hook for `dcim.device` create and update events and select the `AI Resource Review` job. The job stores the LLM output in `ai_resource_review` and skips regeneration when the selected source facts have not changed.
 
 ## Current Scope
 

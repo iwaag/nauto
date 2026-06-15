@@ -173,6 +173,20 @@ custom_fields:
     weight: 245
     content_types:
       - "dcim.device"
+  - key: "ai_resource_review"
+    label: "AI Resource Review"
+    type: "text"
+    description: "LLM-generated review of device suitability for automated agent workloads"
+    weight: 246
+    content_types:
+      - "dcim.device"
+  - key: "ai_resource_review_updated_at"
+    label: "AI Resource Review Updated At"
+    type: "text"
+    description: "Timestamp when ai_resource_review was last generated"
+    weight: 247
+    content_types:
+      - "dcim.device"
   - key: "agent_task_state"
     label: "Agent Task State"
     type: "text"
@@ -180,10 +194,24 @@ custom_fields:
     weight: 248
     content_types:
       - "dcim.device"
+  - key: "ai_resource_review_model"
+    label: "AI Resource Review Model"
+    type: "text"
+    description: "External LLM model used to generate ai_resource_review"
+    weight: 249
+    content_types:
+      - "dcim.device"
   - key: "inventory_raw_json"
     label: "Inventory Raw JSON"
     type: "json"
     description: "Raw summary captured by the self-registration script"
     weight: 250
+    content_types:
+      - "dcim.device"
+  - key: "ai_resource_review_source_hash"
+    label: "AI Resource Review Source Hash"
+    type: "text"
+    description: "SHA-256 hash of the facts used to generate ai_resource_review"
+    weight: 251
     content_types:
       - "dcim.device"
