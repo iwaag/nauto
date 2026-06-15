@@ -76,13 +76,16 @@ def _custom_field_data(device: Any) -> dict[str, Any]:
 
 
 def _set_custom_field(device: Any, key: str, value: Any) -> None:
-    if hasattr(device, "custom_field_data"):
-        data = dict(getattr(device, "custom_field_data", {}) or {})
-        data[key] = value
-        device.custom_field_data = data
-
     if hasattr(device, "cf"):
         device.cf[key] = value
+        return
+
+    data = getattr(device, "custom_field_data", None)
+    if isinstance(data, dict):
+        data[key] = value
+        return
+
+    raise AttributeError("Device object does not expose writable custom field data")
 
 
 def _validated_save(obj: Any) -> None:
