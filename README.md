@@ -104,6 +104,8 @@ AI_RESOURCE_REVIEW_TIMEOUT=30
 AI_RESOURCE_REVIEW_LOG_PROMPT=false
 ```
 
+The Job sends `think=false` to Ollama so thinking-capable models return the final review in `response` instead of spending the request on a separate `thinking` trace.
+
 After syncing this repository and running `Seed Home Cluster` with `dry_run=false`, create a Nautobot Job Hook for `dcim.device` create and update events and select the `AI Resource Review` job. The job stores the LLM output in `ai_resource_review` and skips regeneration when the selected source facts have not changed.
 
 ## Current Scope

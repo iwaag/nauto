@@ -231,6 +231,7 @@ class AIResourceReview(JobHookReceiver):
             "model": model,
             "prompt": prompt,
             "stream": False,
+            "think": False,
             "options": {
                 "temperature": 0.2,
                 "num_predict": 220,
@@ -238,7 +239,7 @@ class AIResourceReview(JobHookReceiver):
         }
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         self.logger.info(
-            "Requesting AI resource review: url=%s model=%s timeout=%s prompt_chars=%s prompt_sha256=%s",
+            "Requesting AI resource review: url=%s model=%s timeout=%s think=false prompt_chars=%s prompt_sha256=%s",
             url,
             model,
             timeout,
