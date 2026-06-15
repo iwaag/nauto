@@ -306,3 +306,10 @@ custom_fields:
     weight: 260
     content_types:
       - "dcim.device"
+  - key: "observed_services"
+    label: "Observed Services"
+    type: "json"
+    description: "Normalized services recently observed on this Device by self-registration"
+    weight: 261
+    content_types:
+      - "dcim.device"

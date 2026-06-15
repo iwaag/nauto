@@ -14,8 +14,10 @@ This repository is structured so it can be used as a Nautobot Git Repository tha
 ├── jobs
 │   ├── __init__.py
 │   ├── ai_resource_review.py
+│   ├── service_placement_review.py
 │   └── seed_home_cluster.py
 └── seed
+    ├── desired_services.yaml
     └── home_cluster.yaml
 ```
 
@@ -31,6 +33,7 @@ Nautobot Git Repository Jobs requirements:
 
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point.
 [jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device self-registration updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
+[jobs/service_placement_review.py](jobs/service_placement_review.py) reviews the cluster-level desired service catalog in [seed/desired_services.yaml](seed/desired_services.yaml) against self-reported Device facts and logs a JSON placement review.
 
 Nautobot-side workflow:
 
@@ -82,6 +85,7 @@ The Device Custom Fields include:
 - `ai_resource_review_source_hash`
 - `service_roles`
 - `preferred_services`
+- `observed_services`
 - `docker_engine_state`
 - `docker_container_running_count`
 - `docker_container_total_count`
@@ -93,7 +97,9 @@ The Device Custom Fields include:
 
 If the required Custom Fields do not exist in Nautobot, Device create/update calls can fail.
 
-Service placement fields are intended for relatively stable automation decisions, not high-frequency monitoring. For example, a Device can declare that `ollama` is normally available at `http://pc1:11434` with a `use_existing_first` startup policy. Live capacity checks such as GPU utilization, VRAM pressure, CPU load, and request latency should come from a monitoring system before an automation agent sends work to that endpoint.
+Service placement fields on a Device are host-local facts or preferences, not the cluster-wide desired service catalog. For example, a Device can declare that `ollama` is normally available at `http://pc1:11434` with a `use_existing_first` startup policy, and self-registration can report `observed_services.ollama` when it sees a running Docker container or systemd unit. Live capacity checks such as GPU utilization, VRAM pressure, CPU load, and request latency should come from a monitoring system before an automation agent sends work to that endpoint.
+
+Cluster-level desired services live independently in [seed/desired_services.yaml](seed/desired_services.yaml). This file answers "what should exist somewhere?" rather than "what does this Device currently provide?"
 
 Example `preferred_services` value:
 
@@ -133,6 +139,18 @@ AI_RESOURCE_REVIEW_LOG_PROMPT=false
 The Job sends `think=false` to Ollama so thinking-capable models return the final review in `response` instead of spending the request on a separate `thinking` trace.
 
 After syncing this repository and running `Seed Home Cluster` with `dry_run=false`, create a Nautobot Job Hook for `dcim.device` create and update events and select the `AI Resource Review` job. The job stores the LLM output in `ai_resource_review` and skips regeneration when the selected source facts have not changed.
+
+The Service Placement Review Job uses these Nautobot server environment variables when `dry_run=false`:
+
+```bash
+SERVICE_PLACEMENT_REVIEW_URL=http://localhost:11434/api/generate
+SERVICE_PLACEMENT_REVIEW_MODEL=llama3.1:8b
+SERVICE_PLACEMENT_REVIEW_TIMEOUT=45
+# Optional, for debugging prompt/model behavior. Logs a bounded prompt preview.
+SERVICE_PLACEMENT_REVIEW_LOG_PROMPT=false
+```
+
+Run `Service Placement Review` manually at first. With `dry_run=true`, it loads the desired service catalog and Device facts and logs deterministic status without calling the LLM. With `dry_run=false`, it requests a JSON placement review from the configured LLM endpoint.
 
 ## Current Scope
 

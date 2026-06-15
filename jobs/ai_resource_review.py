@@ -14,7 +14,6 @@ from urllib.request import Request, urlopen
 from nautobot.apps.jobs import JobHookReceiver
 from nautobot.extras.choices import ObjectChangeActionChoices
 
-
 REVIEW_FIELD = "ai_resource_review"
 REVIEW_UPDATED_AT_FIELD = "ai_resource_review_updated_at"
 REVIEW_MODEL_FIELD = "ai_resource_review_model"
@@ -38,6 +37,7 @@ INPUT_CUSTOM_FIELDS = (
     "purpose",
     "service_roles",
     "preferred_services",
+    "observed_services",
     "docker_engine_state",
     "docker_container_running_count",
     "docker_container_total_count",
