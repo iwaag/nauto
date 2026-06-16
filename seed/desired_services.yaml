@@ -1,4 +1,4 @@
-desired_services:
+nauto/seed/desired_services.yaml:
   - name: "ollama"
     display_name: "Ollama"
     role: "ai-inference"

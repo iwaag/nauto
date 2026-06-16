@@ -13,4 +13,5 @@
 # - service_hint: "service-name"
 # - owner: "team-or-person"
 
-service_repositories: []
+service_repositories:
+  - url: "https://github.com/iwaag/agservice-storage"
