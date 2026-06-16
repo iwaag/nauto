@@ -14,10 +14,12 @@ This repository is structured so it can be used as a Nautobot Git Repository tha
 ├── jobs
 │   ├── __init__.py
 │   ├── ai_resource_review.py
+│   ├── generate_desired_services.py
 │   ├── service_placement_review.py
 │   └── seed_home_cluster.py
 └── seed
     ├── desired_services.yaml
+    ├── service_repositories.yaml
     └── home_cluster.yaml
 ```
 
@@ -34,6 +36,7 @@ Nautobot Git Repository Jobs requirements:
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point.
 [jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device self-registration updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
 [jobs/service_placement_review.py](jobs/service_placement_review.py) reviews the cluster-level desired service catalog in [seed/desired_services.yaml](seed/desired_services.yaml) against self-reported Device facts and logs a JSON placement review.
+[jobs/generate_desired_services.py](jobs/generate_desired_services.py) reads [seed/service_repositories.yaml](seed/service_repositories.yaml), fetches selected repository files without a full clone, and can write `seed/desired_services.generated.yaml`.
 
 Nautobot-side workflow:
 
@@ -100,6 +103,16 @@ If the required Custom Fields do not exist in Nautobot, Device create/update cal
 Service placement fields on a Device are host-local facts or preferences, not the cluster-wide desired service catalog. For example, a Device can declare that `ollama` is normally available at `http://pc1:11434` with a `use_existing_first` startup policy, and self-registration can report `observed_services.ollama` when it sees a running Docker container or systemd unit. Live capacity checks such as GPU utilization, VRAM pressure, CPU load, and request latency should come from a monitoring system before an automation agent sends work to that endpoint.
 
 Cluster-level desired services live independently in [seed/desired_services.yaml](seed/desired_services.yaml). This file answers "what should exist somewhere?" rather than "what does this Device currently provide?"
+
+Repository-driven service discovery starts from [seed/service_repositories.yaml](seed/service_repositories.yaml). Only `url` is required:
+
+```yaml
+service_repositories:
+  - url: "https://github.com/example/hatchet-stack"
+  - url: "https://github.com/example/ollama-service"
+```
+
+The `Generate Desired Services` Job resolves default branches where possible, fetches only `catalog-info.yaml` and a short list of basic files such as `README.md`, and marks repositories without catalog metadata as `insufficient` for later review. Run it with `dry_run=true` first. With `dry_run=false`, it writes `seed/desired_services.generated.yaml`; keep [seed/desired_services.yaml](seed/desired_services.yaml) as the approved catalog until generated output has been reviewed or a merge workflow is added.
 
 Example `preferred_services` value:
 

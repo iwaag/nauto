@@ -1,0 +1,16 @@
+# Repository intent for services that may become desired cluster services.
+#
+# Only `url` is required. The Generate Desired Services Job fills in defaults,
+# fetches selected files without a full clone, and records insufficient analysis
+# when catalog files are missing.
+#
+# Optional fields:
+# - enabled: false
+# - ref: "main"
+# - catalog_paths: ["catalog-info.yaml", "backstage/catalog-info.yaml"]
+# - basic_file_paths: ["README.md", "package.json", "docker-compose.yml"]
+# - raw_url_template: "https://example.com/raw/{ref}/{path}"
+# - service_hint: "service-name"
+# - owner: "team-or-person"
+
+service_repositories: []
