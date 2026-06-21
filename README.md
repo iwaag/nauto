@@ -15,10 +15,12 @@ This repository is structured so it can be used as a Nautobot Git Repository tha
 │   ├── __init__.py
 │   ├── ai_resource_review.py
 │   ├── generate_desired_services.py
+│   ├── ingest_nodeutils_inventory.py
 │   ├── service_placement_review.py
 │   └── seed_home_cluster.py
 └── seed
     ├── desired_services.yaml
+    ├── nodeutils_ingest.yaml
     ├── service_repositories.yaml
     └── home_cluster.yaml
 ```
@@ -34,7 +36,8 @@ Nautobot Git Repository Jobs requirements:
 - The seed data used by the Job is stored at `seed/home_cluster.yaml`, relative to the repository root
 
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point.
-[jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device self-registration updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
+[jobs/ingest_nodeutils_inventory.py](jobs/ingest_nodeutils_inventory.py) reads `nodeutils collect` reports from pasted text, a file, or a directory, validates them, applies [seed/nodeutils_ingest.yaml](seed/nodeutils_ingest.yaml), and creates or updates Devices with Nautobot-side credentials only.
+[jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device inventory updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
 [jobs/service_placement_review.py](jobs/service_placement_review.py) reviews the cluster-level desired service catalog in [seed/desired_services.yaml](seed/desired_services.yaml) against self-reported Device facts and logs a JSON placement review.
 [jobs/generate_desired_services.py](jobs/generate_desired_services.py) reads [seed/service_repositories.yaml](seed/service_repositories.yaml), fetches selected repository files without a full clone, and can write `seed/desired_services.generated.yaml`.
 
@@ -44,11 +47,12 @@ Nautobot-side workflow:
 2. Include `Jobs` in `provides`.
 3. Sync the repository.
 4. Enable `Home Inventory` / `Seed Home Cluster` from Jobs.
-5. Run with `dry_run=true` first, then apply with `dry_run=false`.
+5. Run `Seed Home Cluster` with `dry_run=true` first, then apply with `dry_run=false`.
+6. Run `Ingest Nodeutils Inventory` with `dry_run=true` against one report, inspect logs, then apply with `dry_run=false`.
 
 If Job record updates do not appear in your environment, run `nautobot-server post_upgrade` on the Nautobot server and restart the web / worker processes as needed.
 
-The seed Job creates the main objects required by self-registration:
+The seed Job creates the main objects required by nodeutils inventory ingest:
 
 - Location Type: `Home`
 - Location: `Home`
@@ -100,7 +104,7 @@ The Device Custom Fields include:
 
 If the required Custom Fields do not exist in Nautobot, Device create/update calls can fail.
 
-Service placement fields on a Device are host-local facts or preferences, not the cluster-wide desired service catalog. For example, a Device can declare that `ollama` is normally available at `http://pc1:11434` with a `use_existing_first` startup policy, and self-registration can report `observed_services.ollama` when it sees a running Docker container or systemd unit. Live capacity checks such as GPU utilization, VRAM pressure, CPU load, and request latency should come from a monitoring system before an automation agent sends work to that endpoint.
+Service placement fields on a Device are host-local facts or preferences, not the cluster-wide desired service catalog. For example, a Device can declare that `ollama` is normally available at `http://pc1:11434` with a `use_existing_first` startup policy, and nodeutils can report `observed_services.ollama` when it sees a running Docker container or systemd unit. Live capacity checks such as GPU utilization, VRAM pressure, CPU load, and request latency should come from a monitoring system before an automation agent sends work to that endpoint.
 
 Cluster-level desired services live independently in [seed/desired_services.yaml](seed/desired_services.yaml). This file answers "what should exist somewhere?" rather than "what does this Device currently provide?"
 
@@ -137,7 +141,37 @@ To adjust the prerequisite Nautobot objects:
 editor seed/home_cluster.yaml
 ```
 
+To adjust central policy for nodeutils report ingest:
+
+```bash
+editor seed/nodeutils_ingest.yaml
+```
+
+This policy controls supported report schema versions, default Nautobot objects,
+whether reports may create or update Devices, system-to-role/device-type maps,
+and which `self_reported` fields may be copied into custom fields.
+
 Host-side scripts and their local configuration examples live in the separate `nodeutils` repository.
+
+## Nodeutils Ingest
+
+Generate reports on hosts with:
+
+```bash
+uv run nodeutils collect --output /var/lib/nodeutils/inventory.json
+```
+
+Copy reports to the Nautobot server by SSH, SFTP, rsync, Ansible, or another
+narrow collection path. Then run `Home Inventory` / `Ingest Nodeutils Inventory`:
+
+- `report_path`: one report file or a directory containing `.json`, `.yaml`, or `.yml` reports
+- `report_text`: pasted report content for manual testing
+- `policy_file`: defaults to `seed/nodeutils_ingest.yaml`
+- `dry_run`: keep `true` first to log matched Device, action, report hash, and changed fields
+
+The ingestor rejects malformed, stale, oversized, or unsupported-schema reports.
+Location, role, status, device type, manufacturer, and tags come from
+server-side policy, not from host authority.
 
 The AI resource review Job Hook uses these Nautobot server environment variables:
 
@@ -175,10 +209,10 @@ Run `Service Placement Review` manually at first. With `dry_run=true`, it loads 
 
 ## Current Scope
 
-This repository creates or updates prerequisite Nautobot objects for home inventory self-registration.
+This repository creates prerequisite Nautobot objects and ingests nodeutils inventory reports.
 
 ## Notes
 
 This repository uses the `YAML + Nautobot Job` approach for repeatable home inventory setup.
 
-Nautobot 2.0 or later is assumed. The data model uses Location / Location Type, not the older Site / Region model, so both the seed data and the self-registration script use `location`.
+Nautobot 2.0 or later is assumed. The data model uses Location / Location Type, not the older Site / Region model, so both the seed data and ingest policy use `location`.

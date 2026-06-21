@@ -1,4 +1,4 @@
-"""Generate an LLM review for self-registered Device resources."""
+"""Generate an LLM review for nodeutils-managed Device resources."""
 
 from __future__ import annotations
 

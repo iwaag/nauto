@@ -1,0 +1,30 @@
+schema_versions:
+  - nodeutils.inventory.v1
+
+defaults:
+  location: Home
+  status: Active
+  manufacturer: Generic
+  tags:
+    - self-registered
+    - home
+  allow_create: true
+  allow_update: true
+
+roles_by_system:
+  Linux: linux-workstation
+  Darwin: macos-workstation
+
+device_types_by_system:
+  Linux: Ubuntu PC
+  Darwin: Mac
+
+manufacturers_by_hardware:
+  Apple: Apple
+
+allowed_self_reported:
+  owner: false
+  purpose: true
+  description: true
+  service_roles: true
+  preferred_services: true

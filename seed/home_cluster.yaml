@@ -90,7 +90,7 @@ custom_fields:
   - key: "last_seen"
     label: "Last Seen"
     type: "text"
-    description: "Last successful self-registration timestamp"
+    description: "Last successful nodeutils inventory collection timestamp"
     weight: 120
     content_types:
       - "dcim.device"
@@ -232,7 +232,7 @@ custom_fields:
   - key: "inventory_raw_json"
     label: "Inventory Raw JSON"
     type: "json"
-    description: "Raw summary captured by the self-registration script"
+    description: "Raw summary captured by the nodeutils inventory collector"
     weight: 250
     content_types:
       - "dcim.device"
@@ -309,7 +309,7 @@ custom_fields:
   - key: "observed_services"
     label: "Observed Services"
     type: "json"
-    description: "Normalized services recently observed on this Device by self-registration"
+    description: "Normalized services recently observed on this Device by nodeutils inventory collection"
     weight: 261
     content_types:
       - "dcim.device"

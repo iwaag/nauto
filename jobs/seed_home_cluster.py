@@ -1,4 +1,4 @@
-"""Seed prerequisite Nautobot objects for home host self-registration.
+"""Seed prerequisite Nautobot objects for home inventory ingest.
 
 Install this repository as a Nautobot Git Jobs repository, or copy this file
 under JOBS_ROOT with the sibling seed/ directory. The YAML file is the source
@@ -57,7 +57,7 @@ def validated_save(obj: Any) -> None:
 
 
 class SeedHomeCluster(Job):
-    """Create or update the base objects required by host self-registration."""
+    """Create or update the base objects required by host inventory ingest."""
 
     seed_file = StringVar(
         default="seed/home_cluster.yaml",
