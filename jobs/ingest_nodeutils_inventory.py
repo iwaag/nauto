@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -16,18 +15,10 @@ from django.db import transaction
 
 from nautobot.apps.jobs import BooleanVar, IntegerVar, Job, StringVar
 
+from .nodeutils_ingest_batch import IngestError, ReportInput, load_report_batch, parse_report_content
+
 DEFAULT_POLICY_FILE = "seed/nodeutils_ingest.yaml"
 DEFAULT_MAX_REPORT_BYTES = 2 * 1024 * 1024
-
-
-class IngestError(RuntimeError):
-    pass
-
-
-@dataclass(frozen=True)
-class ReportInput:
-    source: str
-    text: str
 
 
 def get_model(*labels: str):
@@ -109,15 +100,9 @@ def parse_timestamp(value: Any) -> datetime:
 class IngestNodeutilsInventory(Job):
     """Validate nodeutils reports and create/update Nautobot Devices."""
 
-    report_path = StringVar(
+    report_batch = StringVar(
         default="",
-        required=False,
-        description="Path to one report file or a directory of .json/.yaml reports on the Nautobot server.",
-    )
-    report_text = StringVar(
-        default="",
-        required=False,
-        description="Optional pasted JSON/YAML report for manual testing.",
+        description="JSON/YAML batch payload with a top-level reports list. Each entry needs source and text.",
     )
     policy_file = StringVar(
         default=DEFAULT_POLICY_FILE,
@@ -134,28 +119,36 @@ class IngestNodeutilsInventory(Job):
 
     def run(
         self,
-        report_path: str,
-        report_text: str,
+        report_batch: str,
         policy_file: str,
         dry_run: bool,
         max_report_age_hours: int,
         max_report_bytes: int,
     ) -> None:
         policy = self.load_policy(policy_file)
-        inputs = self.load_inputs(report_path, report_text, max_report_bytes)
-        if not inputs:
-            raise IngestError("provide report_path, report_text, or both")
+        inputs = self.load_inputs(report_batch)
 
         self.dry_run = dry_run
+        ingested_count = 0
+        skipped_count = 0
         with transaction.atomic():
             for item in inputs:
                 try:
                     report = self.parse_report(item, max_report_bytes)
                     self.validate_report(report, policy, max_report_age_hours)
                     self.ingest_report(report, policy, item.source)
+                    ingested_count += 1
                 except IngestError as exc:
+                    skipped_count += 1
                     self.logger.warning("Skipping %s: %s", item.source, exc)
 
+            self.logger.info(
+                "Batch summary: total=%s ingested=%s skipped=%s dry_run=%s",
+                len(inputs),
+                ingested_count,
+                skipped_count,
+                dry_run,
+            )
             if dry_run:
                 transaction.set_rollback(True)
                 self.logger.warning("Dry run complete; no changes were committed.")
@@ -169,39 +162,11 @@ class IngestNodeutilsInventory(Job):
             raise IngestError("policy root must be a mapping")
         return data
 
-    def load_inputs(self, report_path: str, report_text: str, max_report_bytes: int) -> list[ReportInput]:
-        inputs = []
-        if report_text.strip():
-            inputs.append(ReportInput("pasted report_text", report_text))
-
-        if report_path.strip():
-            path = Path(report_path)
-            if path.is_dir():
-                for child in sorted(path.iterdir()):
-                    if child.suffix.lower() not in {".json", ".yaml", ".yml"} or not child.is_file():
-                        continue
-                    inputs.append(self.read_report_file(child, max_report_bytes))
-            else:
-                inputs.append(self.read_report_file(path, max_report_bytes))
-        return inputs
-
-    def read_report_file(self, path: Path, max_report_bytes: int) -> ReportInput:
-        size = path.stat().st_size
-        if size > max_report_bytes:
-            raise IngestError(f"{path} is too large: {size} bytes > {max_report_bytes} bytes")
-        return ReportInput(str(path), path.read_text(encoding="utf-8"))
+    def load_inputs(self, report_batch: str) -> list[ReportInput]:
+        return load_report_batch(report_batch)
 
     def parse_report(self, item: ReportInput, max_report_bytes: int) -> dict[str, Any]:
-        size = len(item.text.encode("utf-8"))
-        if size > max_report_bytes:
-            raise IngestError(f"report is too large: {size} bytes > {max_report_bytes} bytes")
-        try:
-            loaded = yaml.safe_load(item.text)
-        except yaml.YAMLError as exc:
-            raise IngestError(f"failed to parse report: {exc}") from exc
-        if not isinstance(loaded, dict):
-            raise IngestError("report root must be a mapping")
-        return loaded
+        return parse_report_content(item, max_report_bytes)
 
     def validate_report(self, report: dict[str, Any], policy: dict[str, Any], max_report_age_hours: int) -> None:
         required = {"schema_version", "collector", "identity", "collected_at", "facts", "self_reported"}

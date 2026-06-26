@@ -36,7 +36,7 @@ Nautobot Git Repository Jobs requirements:
 - The seed data used by the Job is stored at `seed/home_cluster.yaml`, relative to the repository root
 
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point.
-[jobs/ingest_nodeutils_inventory.py](jobs/ingest_nodeutils_inventory.py) reads `nodeutils collect` reports from pasted text, a file, or a directory, validates them, applies [seed/nodeutils_ingest.yaml](seed/nodeutils_ingest.yaml), and creates or updates Devices with Nautobot-side credentials only.
+[jobs/ingest_nodeutils_inventory.py](jobs/ingest_nodeutils_inventory.py) reads a batch of `nodeutils collect` reports from API input, validates them, applies [seed/nodeutils_ingest.yaml](seed/nodeutils_ingest.yaml), and creates or updates Devices with Nautobot-side credentials only.
 [jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device inventory updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
 [jobs/service_placement_review.py](jobs/service_placement_review.py) reviews the cluster-level desired service catalog in [seed/desired_services.yaml](seed/desired_services.yaml) against self-reported Device facts and logs a JSON placement review.
 [jobs/generate_desired_services.py](jobs/generate_desired_services.py) reads [seed/service_repositories.yaml](seed/service_repositories.yaml), fetches selected repository files without a full clone, and can write `seed/desired_services.generated.yaml`.
@@ -161,13 +161,25 @@ Generate reports on hosts with:
 uv run nodeutils collect --output /var/lib/nodeutils/inventory.json
 ```
 
-Copy reports to the Nautobot server by SSH, SFTP, rsync, Ansible, or another
-narrow collection path. Then run `Home Inventory` / `Ingest Nodeutils Inventory`:
+Submit reports to `Home Inventory` / `Ingest Nodeutils Inventory` as one batch
+payload. The Job does not read host or container filesystem paths for
+nodeutils reports.
 
-- `report_path`: one report file or a directory containing `.json`, `.yaml`, or `.yml` reports
-- `report_text`: pasted report content for manual testing
+- `report_batch`: JSON/YAML text with a top-level `reports` list
 - `policy_file`: defaults to `seed/nodeutils_ingest.yaml`
 - `dry_run`: keep `true` first to log matched Device, action, report hash, and changed fields
+
+Example `report_batch`:
+
+```yaml
+reports:
+  - source: agpc
+    text: |
+      {"schema_version": "nodeutils.inventory.v1", "...": "..."}
+  - source: agstudio
+    text: |
+      {"schema_version": "nodeutils.inventory.v1", "...": "..."}
+```
 
 The ingestor rejects malformed, stale, oversized, or unsupported-schema reports.
 Location, role, status, device type, manufacturer, and tags come from
