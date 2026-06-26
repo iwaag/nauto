@@ -1,0 +1,139 @@
+intent_sources: []
+
+desired_nodes:
+  - name: agmbp2019
+    slug: agmbp2019
+    node_type: device
+    accepted_actual_types:
+      - device
+    lifecycle: planned
+    expected_spec:
+      host_os: linux
+      ansible_groups:
+        - prometheus_node_exporter_targets
+
+  - name: agmbp2018
+    slug: agmbp2018
+    node_type: device
+    accepted_actual_types:
+      - device
+    lifecycle: planned
+    expected_spec:
+      host_os: linux
+      ansible_groups:
+        - prometheus_node_exporter_targets
+
+  - name: agpc
+    slug: agpc
+    node_type: device
+    accepted_actual_types:
+      - device
+    lifecycle: planned
+    expected_spec:
+      host_os: linux
+      ansible_groups:
+        - gpu_hosts
+        - nomad_client
+        - prometheus_node_exporter_targets
+
+  - name: agstudio
+    slug: agstudio
+    node_type: device
+    accepted_actual_types:
+      - device
+    lifecycle: planned
+    expected_spec:
+      host_os: macos
+      ansible_groups:
+        - nomad_client
+
+  - name: agbach
+    slug: agbach
+    node_type: device
+    accepted_actual_types:
+      - device
+    lifecycle: planned
+    expected_spec:
+      host_os: macos
+
+  - name: agprometheus
+    slug: agprometheus
+    node_type: device
+    accepted_actual_types:
+      - device
+    lifecycle: planned
+    expected_spec:
+      host_os: linux
+      ansible_groups:
+        - prometheus_server
+
+  - name: aggrafana
+    slug: aggrafana
+    node_type: device
+    accepted_actual_types:
+      - device
+    lifecycle: planned
+    expected_spec:
+      host_os: linux
+      ansible_groups:
+        - grafana_server
+
+  - name: agnomad
+    slug: agnomad
+    node_type: device
+    accepted_actual_types:
+      - device
+    lifecycle: planned
+    expected_spec:
+      host_os: linux
+      ansible_groups:
+        - nomad_server
+
+desired_endpoints:
+  - name: primary
+    desired_node: agmbp2019
+    endpoint_type: primary
+    ip_policy: external
+    mdns_name: agmbp2019.local
+
+  - name: primary
+    desired_node: agmbp2018
+    endpoint_type: primary
+    ip_policy: external
+    mdns_name: agmbp2018.local
+
+  - name: primary
+    desired_node: agpc
+    endpoint_type: primary
+    ip_policy: external
+    mdns_name: agpc.local
+
+  - name: primary
+    desired_node: agstudio
+    endpoint_type: primary
+    ip_policy: external
+    mdns_name: agstudio.local
+
+  - name: primary
+    desired_node: agbach
+    endpoint_type: primary
+    ip_policy: external
+    mdns_name: agbach.local
+
+  - name: primary
+    desired_node: agprometheus
+    endpoint_type: primary
+    ip_policy: external
+    mdns_name: agprometheus.local
+
+  - name: primary
+    desired_node: aggrafana
+    endpoint_type: primary
+    ip_policy: external
+    mdns_name: aggrafana.local
+
+  - name: primary
+    desired_node: agnomad
+    endpoint_type: primary
+    ip_policy: external
+    mdns_name: agnomad.local

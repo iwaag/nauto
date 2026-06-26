@@ -20,6 +20,7 @@ This repository is structured so it can be used as a Nautobot Git Repository tha
 │   └── seed_home_cluster.py
 └── seed
     ├── desired_services.yaml
+    ├── intent_sources.yaml
     ├── nodeutils_ingest.yaml
     ├── service_repositories.yaml
     └── home_cluster.yaml
@@ -40,6 +41,7 @@ In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) conta
 [jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device inventory updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
 [jobs/service_placement_review.py](jobs/service_placement_review.py) reviews the cluster-level desired service catalog in [seed/desired_services.yaml](seed/desired_services.yaml) against self-reported Device facts and logs a JSON placement review.
 [jobs/generate_desired_services.py](jobs/generate_desired_services.py) reads [seed/service_repositories.yaml](seed/service_repositories.yaml), fetches selected repository files without a full clone, and can write `seed/desired_services.generated.yaml`.
+[seed/intent_sources.yaml](seed/intent_sources.yaml) is the nintent input for name-reserved DesiredNodes and primary mDNS endpoints. It is used before nodeutils collection to generate the minimal Ansible bootstrap inventory.
 
 Nautobot-side workflow:
 
@@ -150,6 +152,16 @@ editor seed/nodeutils_ingest.yaml
 This policy controls supported report schema versions, default Nautobot objects,
 whether reports may create or update Devices, system-to-role/device-type maps,
 and which `self_reported` fields may be copied into custom fields.
+
+To adjust name-reserved bootstrap hosts:
+
+```bash
+editor seed/intent_sources.yaml
+```
+
+This file should stay minimal. Put mDNS names and explicit bootstrap grouping in
+`desired_nodes[].expected_spec.ansible_groups`; let nodeutils and Nautobot carry
+hardware, IP, MAC, GPU, and service facts after collection.
 
 Host-side scripts and their local configuration examples live in the separate `nodeutils` repository.
 
