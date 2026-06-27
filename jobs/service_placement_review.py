@@ -1,4 +1,11 @@
-"""Review cluster-level desired service placement against Device facts."""
+"""Review desired service placement drift against observed Device facts.
+
+Desired service membership is owned by the persisted nintent models
+(``DesiredService`` and its active ``DesiredServicePlacement`` rows), not by a
+file catalog.  This Job is read-only: it explains drift between the desired
+convergence target and the observed reality, and never mutates active
+placements.  Acting on a proposal is an explicit, separate operator action.
+"""
 
 from __future__ import annotations
 
@@ -6,15 +13,15 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-import yaml
 from django.apps import apps
-from django.core.exceptions import FieldDoesNotExist
-from nautobot.apps.jobs import BooleanVar, IntegerVar, Job, StringVar
+from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
+from nautobot.apps.jobs import BooleanVar, IntegerVar, Job
+
+from .service_placement_eval import clean_str, evaluate_placement_drift
 
 MAX_LOG_REVIEW_LENGTH = 12000
 MAX_LLM_REVIEW_LENGTH = 20000
@@ -70,34 +77,6 @@ def _custom_field_data(device: Any) -> dict[str, Any]:
     return {}
 
 
-def _list_value(value: Any) -> list[str]:
-    if value in (None, ""):
-        return []
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    if isinstance(value, (list, tuple, set)):
-        return [str(item) for item in value if item not in (None, "")]
-    return [str(value)]
-
-
-def _float_value(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _int_value(value: Any) -> int | None:
-    if value in (None, ""):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _parse_time(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -143,12 +122,8 @@ def _response_metadata(body: dict[str, Any]) -> dict[str, Any]:
 
 
 class ServicePlacementReview(Job):
-    """Review desired cluster services and recommend candidate Device placement."""
+    """Explain drift between desired service placements and observed Device facts."""
 
-    desired_services_file = StringVar(
-        default="seed/desired_services.yaml",
-        description="Path to desired services YAML, relative to the repository root when not absolute.",
-    )
     self_registered_only = BooleanVar(
         default=True,
         description="Only include Devices tagged self-registered when possible.",
@@ -159,35 +134,62 @@ class ServicePlacementReview(Job):
     )
     dry_run = BooleanVar(
         default=True,
-        description="Build facts and log deterministic status without calling the LLM.",
+        description="Build facts and log deterministic drift without calling the LLM.",
     )
 
     class Meta:
         name = "Service Placement Review"
-        description = "Review cluster-level desired services against self-registered Device facts."
+        description = (
+            "Explain drift between persisted desired service placements and observed "
+            "Device facts. Advisory only; never mutates active placements."
+        )
         has_sensitive_variables = False
 
     def run(
         self,
-        desired_services_file: str,
         self_registered_only: bool,
         stale_after_hours: int,
         dry_run: bool,
     ) -> None:
-        desired_services = self.load_desired_services(desired_services_file)
-        devices = self.load_devices(self_registered_only)
-        facts = self.build_facts(desired_services, devices, stale_after_hours)
+        loaded = self.load_services_and_placements()
+        if loaded is None:
+            self.logger.warning(
+                "nautobot_intent_catalog is not installed; cannot read desired placements."
+            )
+            return
+        services, placements = loaded
+
+        now = datetime.now(timezone.utc)
+        devices = self.load_device_facts(self_registered_only, now, stale_after_hours)
+        device_node_map = self.load_device_node_map()
+        drift = evaluate_placement_drift(services, placements, devices, device_node_map)
+
+        facts = {
+            "generated_at": now.isoformat(),
+            "stale_after_hours": stale_after_hours,
+            "services": services,
+            "active_placements": placements,
+            "devices": devices,
+            "drift": drift,
+        }
 
         self.logger.info(
-            "Built service placement facts: desired_services=%s devices=%s",
-            len(desired_services),
+            "Evaluated placement drift: services=%s active_placements=%s devices=%s",
+            len(services),
+            len(placements),
             len(devices),
         )
-        self.logger.info("Deterministic service status: %s", json.dumps(facts["deterministic_status"], sort_keys=True))
+        self.logger.info("Deterministic placement drift: %s", json.dumps(drift, sort_keys=True))
+        self.logger.warning(
+            "Placement review is advisory only and never mutates active placements; "
+            "operators apply any change explicitly."
+        )
 
         if dry_run:
             self.logger.warning("Dry run complete; skipping LLM request.")
-            self.logger.info("Prompt facts preview: %s", _truncate_for_log(json.dumps(facts, sort_keys=True), 4000))
+            self.logger.info(
+                "Prompt facts preview: %s", _truncate_for_log(json.dumps(facts, sort_keys=True), 4000)
+            )
             return
 
         prompt = self.build_prompt(facts)
@@ -203,24 +205,92 @@ class ServicePlacementReview(Job):
             result.model,
             json.dumps(result.metadata, sort_keys=True, ensure_ascii=True),
         )
-        self.logger.info("Service placement review JSON: %s", _truncate_for_log(review_json, MAX_LOG_REVIEW_LENGTH))
+        self.logger.info(
+            "Service placement review JSON: %s", _truncate_for_log(review_json, MAX_LOG_REVIEW_LENGTH)
+        )
 
-    def load_desired_services(self, desired_services_file: str) -> list[dict[str, Any]]:
-        path = Path(desired_services_file)
-        if not path.is_absolute():
-            path = Path(__file__).resolve().parents[1] / path
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        services = data.get("desired_services", [])
-        if not isinstance(services, list):
-            raise ValueError("desired_services must be a list")
-        normalized = []
-        for item in services:
-            if not isinstance(item, dict) or not item.get("name"):
-                continue
-            normalized.append(_plain_value(item))
-        return normalized
+    def load_services_and_placements(
+        self,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+        """Read desired services and active placements from persisted nintent models."""
 
-    def load_devices(self, self_registered_only: bool) -> list[Any]:
+        try:
+            DesiredService = get_model("nautobot_intent_catalog.DesiredService")
+            DesiredServicePlacement = get_model("nautobot_intent_catalog.DesiredServicePlacement")
+        except LookupError:
+            return None
+
+        services: list[dict[str, Any]] = []
+        for service in DesiredService.objects.select_related("intent_source").order_by("name"):
+            intent_source = getattr(service, "intent_source", None)
+            services.append(
+                {
+                    "key": str(service.pk),
+                    "name": service.name,
+                    # observed_services is keyed by the service name self-reported
+                    # by nodeutils; match on it.
+                    "observed_key": service.name,
+                    "display_name": service.display_name,
+                    "lifecycle": service.lifecycle,
+                    "service_type": service.service_type,
+                    "intent_source": getattr(intent_source, "slug", None),
+                    "catalog_namespace": service.catalog_namespace,
+                    "catalog_metadata_name": service.catalog_metadata_name,
+                }
+            )
+
+        placements: list[dict[str, Any]] = []
+        queryset = (
+            DesiredServicePlacement.objects.filter(desired_state="active")
+            .select_related(
+                "desired_node",
+                "desired_node__realized_device",
+                "desired_node__operational_config",
+            )
+            .order_by("desired_service__name", "instance_name")
+        )
+        for placement in queryset:
+            node = placement.desired_node
+            realized = getattr(node, "realized_device", None)
+            try:
+                operational = node.operational_config
+            except ObjectDoesNotExist:
+                operational = None
+            placements.append(
+                {
+                    "service_key": str(placement.desired_service_id),
+                    "instance_name": placement.instance_name,
+                    "instance_role": placement.instance_role,
+                    "node_slug": node.slug,
+                    "realized_device": getattr(realized, "name", None),
+                    "actual_state_policy": getattr(operational, "actual_state_policy", None),
+                    "expected_host_os": getattr(operational, "expected_host_os", None),
+                    "declared_host_os": getattr(operational, "declared_host_os", None),
+                }
+            )
+
+        return services, placements
+
+    def load_device_node_map(self) -> dict[str, str]:
+        """Map realized Device name to its DesiredNode slug for wrong-node detection."""
+
+        DesiredNode = get_model("nautobot_intent_catalog.DesiredNode")
+        mapping: dict[str, str] = {}
+        for node in (
+            DesiredNode.objects.exclude(realized_device__isnull=True)
+            .select_related("realized_device")
+        ):
+            device_name = getattr(node.realized_device, "name", None)
+            if device_name:
+                mapping[device_name] = node.slug
+        return mapping
+
+    def load_device_facts(
+        self,
+        self_registered_only: bool,
+        now: datetime,
+        stale_after_hours: int,
+    ) -> dict[str, dict[str, Any]]:
         Device = get_model("dcim.Device")
         queryset = Device.objects.all()
         if self_registered_only and has_field(Device, "tags"):
@@ -228,29 +298,19 @@ class ServicePlacementReview(Job):
                 queryset = queryset.filter(tags__slug=SELF_REGISTERED_TAG).distinct()
             except Exception:
                 self.logger.warning("Could not filter Devices by tag; including all Devices.")
-        return list(queryset)
 
-    def build_facts(
-        self,
-        desired_services: list[dict[str, Any]],
-        devices: list[Any],
-        stale_after_hours: int,
-    ) -> dict[str, Any]:
-        now = datetime.now(timezone.utc)
-        device_facts = [self.build_device_facts(device, now, stale_after_hours) for device in devices]
-        deterministic_status = self.build_deterministic_status(desired_services, device_facts)
-        return {
-            "generated_at": now.isoformat(),
-            "stale_after_hours": stale_after_hours,
-            "desired_services": desired_services,
-            "devices": device_facts,
-            "deterministic_status": deterministic_status,
-        }
+        devices: dict[str, dict[str, Any]] = {}
+        for device in queryset:
+            facts = self.build_device_facts(device, now, stale_after_hours)
+            name = facts.get("device_name")
+            if name:
+                devices[name] = facts
+        return devices
 
     def build_device_facts(self, device: Any, now: datetime, stale_after_hours: int) -> dict[str, Any]:
         cf_data = _custom_field_data(device)
         role = getattr(device, "role", None) or getattr(device, "device_role", None)
-        tags = []
+        tags: list[str] = []
         tag_manager = getattr(device, "tags", None)
         if tag_manager is not None:
             try:
@@ -258,7 +318,6 @@ class ServicePlacementReview(Job):
             except Exception:
                 tags = []
 
-        last_seen_age_hours = _age_hours(cf_data.get("last_seen"), now)
         service_age_hours = _age_hours(cf_data.get("service_inventory_updated_at"), now)
         observed_services = cf_data.get("observed_services")
         if not isinstance(observed_services, dict):
@@ -270,144 +329,43 @@ class ServicePlacementReview(Job):
             "location": _object_name(getattr(device, "location", None)),
             "status": _object_name(getattr(device, "status", None)),
             "tags": tags,
+            "observed_system": clean_str(cf_data.get("host_system")),
             "last_seen": cf_data.get("last_seen"),
-            "last_seen_age_hours": last_seen_age_hours,
+            "last_seen_age_hours": _age_hours(cf_data.get("last_seen"), now),
             "service_inventory_updated_at": cf_data.get("service_inventory_updated_at"),
             "service_inventory_age_hours": service_age_hours,
             "is_stale": service_age_hours is None or service_age_hours > stale_after_hours,
-            "agent_task_state": cf_data.get("agent_task_state"),
-            "cpu_cores": _int_value(cf_data.get("cpu_cores")),
-            "memory_gb": _float_value(cf_data.get("memory_gb")),
-            "gpu_count": _int_value(cf_data.get("gpu_count")),
-            "gpu_models": cf_data.get("gpu_models"),
-            "gpu_memory_gb": _float_value(cf_data.get("gpu_memory_gb")),
-            "service_roles": _list_value(cf_data.get("service_roles")),
-            "preferred_services": _plain_value(cf_data.get("preferred_services") or {}),
             "observed_services": _plain_value(observed_services),
-            "docker_engine_state": cf_data.get("docker_engine_state"),
-            "docker_container_running_count": _int_value(cf_data.get("docker_container_running_count")),
-            "docker_service_summary": cf_data.get("docker_service_summary"),
-            "ai_resource_summary": cf_data.get("ai_resource_summary"),
-            "ai_resource_review": cf_data.get("ai_resource_review"),
         }
-
-    def build_deterministic_status(
-        self,
-        desired_services: list[dict[str, Any]],
-        device_facts: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        status: dict[str, Any] = {}
-        for service in desired_services:
-            name = str(service.get("name"))
-            observed_instances = []
-            candidates = []
-            min_memory = _float_value(service.get("min_memory_gb"))
-            prefers_gpu = bool(service.get("prefers_gpu"))
-            min_instances = int(service.get("min_instances") or 1)
-
-            for device in device_facts:
-                observed = device.get("observed_services")
-                if not isinstance(observed, dict):
-                    observed = {}
-                preferred = device.get("preferred_services")
-                if not isinstance(preferred, dict):
-                    preferred = {}
-                observed_service = observed.get(name) if isinstance(observed.get(name), dict) else None
-                preferred_service = preferred.get(name) if isinstance(preferred.get(name), dict) else None
-                has_memory = min_memory is None or (
-                    isinstance(device.get("memory_gb"), (int, float)) and float(device["memory_gb"]) >= min_memory
-                )
-                has_gpu = not prefers_gpu or bool(device.get("gpu_count"))
-
-                if observed_service:
-                    observed_instances.append(
-                        {
-                            "device": device.get("device_name"),
-                            "state": observed_service.get("state"),
-                            "source": observed_service.get("source"),
-                            "endpoint": observed_service.get("endpoint"),
-                            "is_stale": device.get("is_stale"),
-                        }
-                    )
-
-                candidate_score = 0
-                candidate_reasons = []
-                if observed_service:
-                    candidate_score += 50
-                    candidate_reasons.append("already_observed")
-                if preferred_service:
-                    candidate_score += 20
-                    candidate_reasons.append("host_preferred")
-                if has_memory:
-                    candidate_score += 10
-                    candidate_reasons.append("meets_min_memory")
-                if has_gpu:
-                    candidate_score += 10
-                    candidate_reasons.append("meets_gpu_preference")
-                if not device.get("is_stale"):
-                    candidate_score += 10
-                    candidate_reasons.append("recent_service_inventory")
-
-                candidates.append(
-                    {
-                        "device": device.get("device_name"),
-                        "score": candidate_score,
-                        "reasons": candidate_reasons,
-                        "meets_min_memory": has_memory,
-                        "has_gpu_when_preferred": has_gpu,
-                        "already_running": bool(observed_service),
-                        "has_preferred_endpoint": bool(preferred_service),
-                        "recently_seen": not device.get("is_stale"),
-                    }
-                )
-
-            running_instances = [
-                item for item in observed_instances if str(item.get("state", "")).lower() in {"running", "active"}
-            ]
-            if len(running_instances) >= min_instances:
-                service_status = "satisfied"
-            elif observed_instances:
-                service_status = "under_replicated"
-            else:
-                service_status = "missing"
-
-            status[name] = {
-                "status": service_status,
-                "required": bool(service.get("required")),
-                "min_instances": min_instances,
-                "observed_count": len(observed_instances),
-                "running_count": len(running_instances),
-                "observed_instances": observed_instances,
-                "top_candidates": sorted(candidates, key=lambda item: item["score"], reverse=True)[:5],
-            }
-        return status
 
     def build_prompt(self, facts: dict[str, Any]) -> str:
         facts_text = json.dumps(facts, sort_keys=True, indent=2, ensure_ascii=True)
         return (
-            "You are reviewing service placement for an automation home cluster.\n\n"
+            "You are reviewing desired service placement drift for an automation home cluster.\n\n"
             "Return JSON only. Do not include Markdown.\n"
             "The JSON must have this shape:\n"
             "{"
             '"generated_at": string, '
             '"services": {'
-            '"service_name": {'
-            '"status": "satisfied|under_replicated|over_replicated|missing|stale|conflicting|unknown", '
-            '"observed_instances": [{"device": string, "endpoint": string|null, "state": string|null}], '
-            '"recommended_primary": string|null, '
-            '"recommended_fallbacks": [string], '
+            '"service_key": {'
+            '"status": "satisfied|drift|no_active_placement", '
+            '"placements": [{"instance_name": string, "desired_node": string, '
+            '"drift": ["missing_service|stale_observation|insufficient_actual_facts|os_mismatch"]}], '
+            '"unexpected_locations": [{"device": string, "node": string|null}], '
+            '"proposed_actions": [string], '
             '"cautions": [string], '
             '"confidence": "low|medium|high"'
             "}}}\n\n"
             "Rules:\n"
             "- Use only the provided facts.\n"
-            "- Desired services are cluster-level intent, not Device facts.\n"
+            "- Active placements in nintent are the authoritative desired convergence target.\n"
+            "- A missing or stopped observed service is drift, never a reason to remove a placement.\n"
             "- Observed services are recent Device self-reports, not live capacity guarantees.\n"
-            "- Do not invent endpoints, Devices, or availability.\n"
-            "- Treat stale Device reports as caution or unknown.\n"
-            "- Prefer existing observed services when placement policy says prefer_existing.\n"
-            "- Do not recommend starting new instances when allow_start_new is false.\n"
-            "- Mention monitoring checks when live load or health matters.\n\n"
+            "- Report missing service, wrong node, stale observation, insufficient actual facts, and\n"
+            "  desired/actual OS mismatch as distinct drift, never folded together.\n"
+            "- Do not invent endpoints, Devices, placements, or availability.\n"
+            "- Treat stale Device reports as caution, not as confirmed convergence.\n"
+            "- proposed_actions are advisory only; this review never mutates placements.\n\n"
             f"Facts:\n{facts_text}\n"
         )
 

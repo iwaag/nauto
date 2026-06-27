@@ -19,7 +19,6 @@ This repository is structured so it can be used as a Nautobot Git Repository tha
 │   ├── service_placement_review.py
 │   └── seed_home_cluster.py
 └── seed
-    ├── desired_services.yaml
     ├── intent_sources.yaml
     ├── nodeutils_ingest.yaml
     ├── service_repositories.yaml
@@ -39,7 +38,7 @@ Nautobot Git Repository Jobs requirements:
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point.
 [jobs/ingest_nodeutils_inventory.py](jobs/ingest_nodeutils_inventory.py) reads a batch of `nodeutils collect` reports from API input, validates them, applies [seed/nodeutils_ingest.yaml](seed/nodeutils_ingest.yaml), and creates or updates Devices with Nautobot-side credentials only.
 [jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device inventory updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
-[jobs/service_placement_review.py](jobs/service_placement_review.py) reviews the cluster-level desired service catalog in [seed/desired_services.yaml](seed/desired_services.yaml) against self-reported Device facts and logs a JSON placement review.
+[jobs/service_placement_review.py](jobs/service_placement_review.py) reads the persisted nintent `DesiredService` and active `DesiredServicePlacement` records, compares them against observed Device facts, and logs a deterministic per-service drift report (and an optional JSON placement review). It is advisory only and never mutates placements.
 [jobs/generate_desired_services.py](jobs/generate_desired_services.py) reads [seed/service_repositories.yaml](seed/service_repositories.yaml), fetches selected repository files without a full clone, and can write `seed/desired_services.generated.yaml`.
 [seed/intent_sources.yaml](seed/intent_sources.yaml) is the nintent input for name-reserved DesiredNodes and primary mDNS endpoints. It is used before nodeutils collection to generate the minimal Ansible bootstrap inventory.
 
@@ -85,6 +84,8 @@ The Device Custom Fields include:
 - `serial_number`
 - `primary_mac_address`
 - `primary_ip_address`
+- `network_interface`
+- `host_system`
 - `inventory_source`
 - `ai_resource_summary`
 - `agent_task_state`
@@ -92,8 +93,6 @@ The Device Custom Fields include:
 - `ai_resource_review_updated_at`
 - `ai_resource_review_model`
 - `ai_resource_review_source_hash`
-- `service_roles`
-- `preferred_services`
 - `observed_services`
 - `docker_engine_state`
 - `docker_container_running_count`
@@ -106,9 +105,9 @@ The Device Custom Fields include:
 
 If the required Custom Fields do not exist in Nautobot, Device create/update calls can fail.
 
-Service placement fields on a Device are host-local facts or preferences, not the cluster-wide desired service catalog. For example, a Device can declare that `ollama` is normally available at `http://pc1:11434` with a `use_existing_first` startup policy, and nodeutils can report `observed_services.ollama` when it sees a running Docker container or systemd unit. Live capacity checks such as GPU utilization, VRAM pressure, CPU load, and request latency should come from a monitoring system before an automation agent sends work to that endpoint.
+Observed service fields on a Device are host-local facts, not the cluster-wide desired service catalog. nodeutils reports `observed_services.ollama` when it sees a running Docker container or systemd unit, but that observation never decides desired service-group membership; desired placement lives in nintent `DesiredServicePlacement` records. Live capacity checks such as GPU utilization, VRAM pressure, CPU load, and request latency should come from a monitoring system before an automation agent sends work to that endpoint.
 
-Cluster-level desired services live independently in [seed/desired_services.yaml](seed/desired_services.yaml). This file answers "what should exist somewhere?" rather than "what does this Device currently provide?"
+Cluster-level desired services and their placements are persisted in nintent (`DesiredService` and `DesiredServicePlacement`). They answer "what should run where?" rather than "what does this Device currently provide?" The Service Placement Review reads those models directly; there is no file catalog acting as a second source of truth.
 
 Repository-driven service discovery starts from [seed/service_repositories.yaml](seed/service_repositories.yaml). Only `url` is required:
 
@@ -118,22 +117,7 @@ service_repositories:
   - url: "https://github.com/example/ollama-service"
 ```
 
-The `Generate Desired Services` Job resolves default branches where possible, fetches only `catalog-info.yaml` and a short list of basic files such as `README.md`, and marks repositories without catalog metadata as `insufficient` for later review. Run it with `dry_run=true` first. With `dry_run=false`, it writes `seed/desired_services.generated.yaml`; keep [seed/desired_services.yaml](seed/desired_services.yaml) as the approved catalog until generated output has been reviewed or a merge workflow is added.
-
-Example `preferred_services` value:
-
-```json
-{
-  "ollama": {
-    "service_role": "ai-inference",
-    "preferred": true,
-    "endpoint": "http://pc1:11434",
-    "startup_policy": "use_existing_first",
-    "fallback_policy": "start_new_if_capacity_available",
-    "managed_by": "systemd"
-  }
-}
-```
+The `Generate Desired Services` Job resolves default branches where possible, fetches only `catalog-info.yaml` and a short list of basic files such as `README.md`, and marks repositories without catalog metadata as `insufficient` for later review. Run it with `dry_run=true` first. With `dry_run=false`, it writes `seed/desired_services.generated.yaml` as a candidate proposal for operator review; it does not become authoritative until reviewed and persisted into nintent.
 
 ## Configuration
 
@@ -159,9 +143,12 @@ To adjust name-reserved bootstrap hosts:
 editor seed/intent_sources.yaml
 ```
 
-This file should stay minimal. Put mDNS names and explicit bootstrap grouping in
-`desired_nodes[].expected_spec.ansible_groups`; let nodeutils and Nautobot carry
-hardware, IP, MAC, GPU, and service facts after collection.
+This file declares desired nodes, endpoints, services, service placements, and
+typed node operational configuration. Bootstrap inventory generation uses only
+the eligible desired nodes and their mDNS endpoints. Production service groups
+come exclusively from active placements and the Ansible-owned deployment-profile
+map; observed facts supply only the production exporter's audited actual-state
+fields.
 
 Host-side scripts and their local configuration examples live in the separate `nodeutils` repository.
 
@@ -229,7 +216,7 @@ SERVICE_PLACEMENT_REVIEW_TIMEOUT=45
 SERVICE_PLACEMENT_REVIEW_LOG_PROMPT=false
 ```
 
-Run `Service Placement Review` manually at first. With `dry_run=true`, it loads the desired service catalog and Device facts and logs deterministic status without calling the LLM. With `dry_run=false`, it requests a JSON placement review from the configured LLM endpoint.
+Run `Service Placement Review` manually at first. With `dry_run=true`, it reads the persisted desired services and active placements plus observed Device facts and logs the deterministic drift report without calling the LLM. With `dry_run=false`, it additionally requests a JSON placement review from the configured LLM endpoint. The report separates `missing_service`, `wrong_node`, `stale_observation`, `insufficient_actual_facts`, and `os_mismatch` drift, and a missing or stopped observation is reported as drift rather than removing the placement from the desired convergence target.
 
 ## Current Scope
 

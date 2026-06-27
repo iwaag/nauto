@@ -26,5 +26,3 @@ allowed_self_reported:
   owner: false
   purpose: true
   description: true
-  service_roles: true
-  preferred_services: true

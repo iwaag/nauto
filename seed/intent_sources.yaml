@@ -6,88 +6,63 @@ desired_nodes:
     node_type: device
     accepted_actual_types:
       - device
-    lifecycle: planned
-    expected_spec:
-      host_os: linux
-      ansible_groups:
-        - prometheus_node_exporter_targets
+    lifecycle: active
 
   - name: agmbp2018
     slug: agmbp2018
     node_type: device
     accepted_actual_types:
       - device
-    lifecycle: planned
-    expected_spec:
-      host_os: linux
-      ansible_groups:
-        - prometheus_node_exporter_targets
+    lifecycle: active
 
   - name: agpc
     slug: agpc
     node_type: device
     accepted_actual_types:
       - device
-    lifecycle: planned
-    expected_spec:
-      host_os: linux
-      ansible_groups:
-        - gpu_hosts
-        - nomad_client
-        - prometheus_node_exporter_targets
+    lifecycle: active
 
   - name: agstudio
     slug: agstudio
     node_type: device
     accepted_actual_types:
       - device
-    lifecycle: planned
-    expected_spec:
-      host_os: macos
-      ansible_groups:
-        - nomad_client
+    lifecycle: active
 
   - name: agbach
     slug: agbach
     node_type: device
     accepted_actual_types:
       - device
-    lifecycle: planned
-    expected_spec:
-      host_os: macos
+    lifecycle: active
 
   - name: agprometheus
     slug: agprometheus
     node_type: device
     accepted_actual_types:
       - device
-    lifecycle: planned
-    expected_spec:
-      host_os: linux
-      ansible_groups:
-        - prometheus_server
+    lifecycle: active
 
   - name: aggrafana
     slug: aggrafana
     node_type: device
     accepted_actual_types:
       - device
-    lifecycle: planned
-    expected_spec:
-      host_os: linux
-      ansible_groups:
-        - grafana_server
+    lifecycle: active
 
   - name: agnomad
     slug: agnomad
     node_type: device
     accepted_actual_types:
       - device
-    lifecycle: planned
-    expected_spec:
-      host_os: linux
-      ansible_groups:
-        - nomad_server
+    lifecycle: active
+
+  - name: aghaos
+    slug: aghaos
+    node_type: device
+    accepted_actual_types:
+      - device
+    lifecycle: active
 
 desired_endpoints:
   - name: primary
@@ -137,3 +112,203 @@ desired_endpoints:
     endpoint_type: primary
     ip_policy: external
     mdns_name: agnomad.local
+
+  - name: primary
+    desired_node: aghaos
+    endpoint_type: primary
+    ip_policy: static
+    ip_address: 192.168.0.20
+
+desired_service_placements:
+  - desired_service:
+      intent_source: infrastructure
+      catalog_namespace: default
+      catalog_metadata_name: prometheus
+      service_type: service
+    instance_name: primary
+    desired_node: agprometheus
+    desired_endpoint:
+      name: primary
+      endpoint_type: primary
+    desired_state: active
+    instance_role: primary
+    deployment_profile: prometheus
+    config_schema_version: "1"
+    assignment_source: yaml
+    config: {}
+
+  - desired_service:
+      intent_source: infrastructure
+      catalog_namespace: default
+      catalog_metadata_name: grafana
+      service_type: service
+    instance_name: primary
+    desired_node: aggrafana
+    desired_endpoint:
+      name: primary
+      endpoint_type: primary
+    desired_state: active
+    instance_role: primary
+    deployment_profile: grafana
+    config_schema_version: "1"
+    assignment_source: yaml
+    config: {}
+
+  - desired_service:
+      intent_source: infrastructure
+      catalog_namespace: default
+      catalog_metadata_name: nomad
+      service_type: service
+    instance_name: server
+    desired_node: agnomad
+    desired_endpoint:
+      name: primary
+      endpoint_type: primary
+    desired_state: active
+    instance_role: primary
+    deployment_profile: nomad_server
+    config_schema_version: "1"
+    assignment_source: yaml
+    config: {}
+
+  - desired_service:
+      intent_source: infrastructure
+      catalog_namespace: default
+      catalog_metadata_name: nomad
+      service_type: service
+    instance_name: client-agstudio
+    desired_node: agstudio
+    desired_endpoint:
+      name: primary
+      endpoint_type: primary
+    desired_state: active
+    instance_role: worker
+    deployment_profile: nomad_client
+    config_schema_version: "1"
+    assignment_source: yaml
+    config: {}
+
+  - desired_service:
+      intent_source: infrastructure
+      catalog_namespace: default
+      catalog_metadata_name: prometheus-node-exporter
+      service_type: service
+    instance_name: agpc
+    desired_node: agpc
+    desired_endpoint:
+      name: primary
+      endpoint_type: primary
+    desired_state: active
+    deployment_profile: prometheus_node_exporter
+    config_schema_version: "1"
+    assignment_source: yaml
+    config: {}
+
+  - desired_service:
+      intent_source: infrastructure
+      catalog_namespace: default
+      catalog_metadata_name: haos
+      service_type: service
+    instance_name: primary
+    desired_node: aghaos
+    desired_endpoint:
+      name: primary
+      endpoint_type: primary
+    desired_state: active
+    instance_role: primary
+    deployment_profile: home_assistant
+    config_schema_version: "1"
+    assignment_source: yaml
+    config: {}
+
+desired_node_operational_configs:
+  - desired_node: agmbp2019
+    actual_state_policy: required
+    expected_host_os: linux
+    connection_path: local
+    power_control: wol
+    is_laptop: true
+    local_endpoint:
+      name: primary
+      endpoint_type: primary
+
+  - desired_node: agmbp2018
+    actual_state_policy: required
+    expected_host_os: linux
+    connection_path: local
+    power_control: wol
+    is_laptop: true
+    local_endpoint:
+      name: primary
+      endpoint_type: primary
+
+  - desired_node: agpc
+    actual_state_policy: required
+    expected_host_os: linux
+    connection_path: local
+    power_control: wol
+    is_laptop: false
+    local_endpoint:
+      name: primary
+      endpoint_type: primary
+
+  - desired_node: agstudio
+    actual_state_policy: required
+    expected_host_os: macos
+    connection_path: local
+    power_control: macos_sleep
+    is_laptop: false
+    local_endpoint:
+      name: primary
+      endpoint_type: primary
+
+  - desired_node: agbach
+    actual_state_policy: required
+    expected_host_os: macos
+    connection_path: local
+    power_control: macos_sleep
+    is_laptop: true
+    local_endpoint:
+      name: primary
+      endpoint_type: primary
+
+  - desired_node: agprometheus
+    actual_state_policy: required
+    expected_host_os: linux
+    connection_path: local
+    power_control: none
+    is_laptop: false
+    local_endpoint:
+      name: primary
+      endpoint_type: primary
+
+  - desired_node: aggrafana
+    actual_state_policy: required
+    expected_host_os: linux
+    connection_path: local
+    power_control: none
+    is_laptop: false
+    local_endpoint:
+      name: primary
+      endpoint_type: primary
+
+  - desired_node: agnomad
+    actual_state_policy: required
+    expected_host_os: linux
+    connection_path: local
+    power_control: none
+    is_laptop: false
+    local_endpoint:
+      name: primary
+      endpoint_type: primary
+
+  - desired_node: aghaos
+    actual_state_policy: declared
+    declared_host_os: haos
+    connection_path: local
+    power_control: none
+    is_laptop: false
+    ansible_port: 2222
+    local_endpoint:
+      name: primary
+      endpoint_type: primary

@@ -18,6 +18,12 @@ from django.db import transaction
 
 from nautobot.apps.jobs import BooleanVar, Job, StringVar
 
+try:
+    from nautobot_intent_catalog.models import DesiredService, IntentSource
+except ImportError:  # pragma: no cover
+    DesiredService = None  # type: ignore[assignment,misc]
+    IntentSource = None  # type: ignore[assignment,misc]
+
 
 def slugify(value: str) -> str:
     import re
@@ -89,6 +95,8 @@ class SeedHomeCluster(Job):
             self.ensure_device_types(data.get("device_types", []), manufacturers)
             self.ensure_tags(data.get("tags", []))
             self.ensure_custom_fields(data.get("custom_fields", []))
+            intent_sources = self.ensure_intent_sources(data.get("intent_sources", []))
+            self.ensure_desired_services(data.get("desired_services", []), intent_sources)
 
             if dry_run:
                 transaction.set_rollback(True)
@@ -283,6 +291,91 @@ class SeedHomeCluster(Job):
             )
             refs[name_value] = obj
         return refs
+
+    def ensure_intent_sources(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        if IntentSource is None:
+            self.logger.warning("nautobot_intent_catalog is not installed; skipping intent_sources.")
+            return {}
+        refs: dict[str, Any] = {}
+        for item in items:
+            slug = item["slug"]
+            obj = IntentSource.objects.filter(slug=slug).first()
+            if obj is None:
+                obj = IntentSource(
+                    slug=slug,
+                    name=item.get("name") or slug,
+                    source_type=item.get("source_type", "manual"),
+                    enabled=item.get("enabled", True),
+                )
+                if self.dry_run:
+                    self.logger.info("Would create IntentSource %s", slug)
+                else:
+                    obj.full_clean()
+                    obj.save()
+                    self.logger.info("Created IntentSource %s", slug)
+            else:
+                self.logger.info("Exists IntentSource %s", slug)
+            refs[slug] = obj
+        return refs
+
+    def ensure_desired_services(
+        self,
+        items: list[dict[str, Any]],
+        intent_sources: dict[str, Any],
+    ) -> None:
+        if DesiredService is None:
+            self.logger.warning("nautobot_intent_catalog is not installed; skipping desired_services.")
+            return
+        for item in items:
+            source_slug = item["intent_source"]
+            intent_source = intent_sources.get(source_slug)
+            if intent_source is None:
+                self.logger.warning(
+                    "desired_services: intent_source %r not found; skipping %s.",
+                    source_slug,
+                    item.get("catalog_metadata_name"),
+                )
+                continue
+            lookup = {
+                "intent_source": intent_source,
+                "catalog_namespace": item.get("catalog_namespace", "default"),
+                "catalog_metadata_name": item["catalog_metadata_name"],
+                "service_type": item.get("service_type", "service"),
+            }
+            obj = DesiredService.objects.filter(**lookup).first()
+            name = item.get("name") or item["catalog_metadata_name"]
+            defaults = {
+                "name": name,
+                "slug": slugify(name),
+                "display_name": item.get("display_name") or name,
+                "lifecycle": item.get("lifecycle", "active"),
+            }
+            if obj is None:
+                obj = DesiredService(**lookup)
+                for key, value in defaults.items():
+                    setattr(obj, key, value)
+                if self.dry_run:
+                    self.logger.info("Would create DesiredService %s", name)
+                else:
+                    obj.full_clean()
+                    obj.save()
+                    self.logger.info("Created DesiredService %s", name)
+            else:
+                changed = False
+                if self.update_existing:
+                    for key, value in defaults.items():
+                        if getattr(obj, key, None) != value:
+                            setattr(obj, key, value)
+                            changed = True
+                if changed:
+                    if self.dry_run:
+                        self.logger.info("Would update DesiredService %s", name)
+                    else:
+                        obj.full_clean()
+                        obj.save()
+                        self.logger.info("Updated DesiredService %s", name)
+                else:
+                    self.logger.info("Exists DesiredService %s", name)
 
     def ensure_custom_fields(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         CustomField = get_model("extras.CustomField")

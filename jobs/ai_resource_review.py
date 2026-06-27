@@ -35,8 +35,6 @@ INPUT_CUSTOM_FIELDS = (
     "disk_total_gb",
     "last_seen",
     "purpose",
-    "service_roles",
-    "preferred_services",
     "observed_services",
     "docker_engine_state",
     "docker_container_running_count",

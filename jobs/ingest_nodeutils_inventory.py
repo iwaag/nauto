@@ -346,12 +346,17 @@ class IngestNodeutilsInventory(Job):
         memory = facts.get("memory") if isinstance(facts.get("memory"), dict) else {}
         disk = facts.get("disk") if isinstance(facts.get("disk"), dict) else {}
         network = facts.get("network") if isinstance(facts.get("network"), dict) else {}
+        primary_interface = network.get("primary_interface") if isinstance(network.get("primary_interface"), dict) else {}
         gpu = facts.get("gpu") if isinstance(facts.get("gpu"), dict) else {}
         services = facts.get("services") if isinstance(facts.get("services"), dict) else {}
         docker = services.get("docker") if isinstance(services.get("docker"), dict) else {}
 
         custom_fields = {
             "last_seen": report.get("collected_at"),
+            # Raw nodeutils platform.system() value; the production exporter
+            # normalizes it to the host_os enum in one place. Persisted source,
+            # not a desired value.
+            "host_system": facts.get("system"),
             "os_name": facts.get("os_name"),
             "os_version": facts.get("os_version"),
             "kernel_version": facts.get("kernel_version"),
@@ -367,12 +372,11 @@ class IngestNodeutilsInventory(Job):
             "serial_number": identity.get("serial_number"),
             "primary_mac_address": network.get("primary_mac_address"),
             "primary_ip_address": network.get("primary_ip_address"),
+            # Explicit primary interface name so the production exporter never
+            # has to inspect the unrestricted inventory_raw_json blob for it.
+            "network_interface": primary_interface.get("name"),
             "inventory_source": "nodeutils",
             "ai_resource_summary": self.make_ai_resource_summary(report),
-            "service_roles": ", ".join(list_value(self_reported.get("service_roles")))
-            if allowed.get("service_roles")
-            else None,
-            "preferred_services": self_reported.get("preferred_services") if allowed.get("preferred_services") else None,
             "observed_services": services.get("observed_services"),
             "docker_engine_state": docker.get("engine_state"),
             "docker_container_running_count": docker.get("container_running_count"),
@@ -421,7 +425,6 @@ class IngestNodeutilsInventory(Job):
             "disk_gb": disk.get("root_total_gb"),
             "purpose": self_reported.get("purpose"),
             "ip": network.get("primary_ip_address"),
-            "services": ",".join(list_value(self_reported.get("service_roles"))),
             "observed": ",".join(sorted((services.get("observed_services") or {}).keys()))
             if isinstance(services.get("observed_services"), dict)
             else None,

@@ -188,6 +188,20 @@ custom_fields:
     weight: 230
     content_types:
       - "dcim.device"
+  - key: "network_interface"
+    label: "Network Interface"
+    type: "text"
+    description: "Primary network interface name observed by nodeutils (facts.network.primary_interface.name)"
+    weight: 232
+    content_types:
+      - "dcim.device"
+  - key: "host_system"
+    label: "Host System"
+    type: "text"
+    description: "Raw nodeutils platform.system() value (e.g. Linux, Darwin); normalized to host_os by the production exporter"
+    weight: 234
+    content_types:
+      - "dcim.device"
   - key: "inventory_source"
     label: "Inventory Source"
     type: "text"
@@ -241,20 +255,6 @@ custom_fields:
     type: "text"
     description: "SHA-256 hash of the facts used to generate ai_resource_review"
     weight: 251
-    content_types:
-      - "dcim.device"
-  - key: "service_roles"
-    label: "Service Roles"
-    type: "text"
-    description: "Comma-separated stable service roles provided by this Device, such as ai-inference or automation-control"
-    weight: 252
-    content_types:
-      - "dcim.device"
-  - key: "preferred_services"
-    label: "Preferred Services"
-    type: "json"
-    description: "Stable service placement declarations and preferred endpoints for automation agents"
-    weight: 253
     content_types:
       - "dcim.device"
   - key: "docker_engine_state"
@@ -313,3 +313,50 @@ custom_fields:
     weight: 261
     content_types:
       - "dcim.device"
+
+intent_sources:
+  - slug: infrastructure
+    name: Infrastructure
+    source_type: manual
+    enabled: true
+
+desired_services:
+  - intent_source: infrastructure
+    catalog_namespace: default
+    catalog_metadata_name: prometheus
+    service_type: service
+    name: prometheus
+    display_name: Prometheus
+    lifecycle: active
+
+  - intent_source: infrastructure
+    catalog_namespace: default
+    catalog_metadata_name: grafana
+    service_type: service
+    name: grafana
+    display_name: Grafana
+    lifecycle: active
+
+  - intent_source: infrastructure
+    catalog_namespace: default
+    catalog_metadata_name: nomad
+    service_type: service
+    name: nomad
+    display_name: Nomad
+    lifecycle: active
+
+  - intent_source: infrastructure
+    catalog_namespace: default
+    catalog_metadata_name: prometheus-node-exporter
+    service_type: service
+    name: prometheus-node-exporter
+    display_name: Prometheus Node Exporter
+    lifecycle: active
+
+  - intent_source: infrastructure
+    catalog_namespace: default
+    catalog_metadata_name: haos
+    service_type: service
+    name: haos
+    display_name: Home Assistant OS
+    lifecycle: active
