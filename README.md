@@ -16,7 +16,6 @@ This repository is structured so it can be used as a Nautobot Git Repository tha
 │   ├── ai_resource_review.py
 │   ├── generate_desired_services.py
 │   ├── ingest_nodeutils_inventory.py
-│   ├── service_placement_review.py
 │   └── seed_home_cluster.py
 └── seed
     ├── intent_sources.yaml
@@ -38,7 +37,6 @@ Nautobot Git Repository Jobs requirements:
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point.
 [jobs/ingest_nodeutils_inventory.py](jobs/ingest_nodeutils_inventory.py) reads a batch of `nodeutils collect` reports from API input, validates them, applies [seed/nodeutils_ingest.yaml](seed/nodeutils_ingest.yaml), and creates or updates Devices with Nautobot-side credentials only.
 [jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device inventory updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
-[jobs/service_placement_review.py](jobs/service_placement_review.py) reads the persisted nintent `DesiredService` and active `DesiredServicePlacement` records, compares them against observed Device facts, and logs a deterministic per-service drift report (and an optional JSON placement review). It is advisory only and never mutates placements.
 [jobs/generate_desired_services.py](jobs/generate_desired_services.py) reads [seed/service_repositories.yaml](seed/service_repositories.yaml), fetches selected repository files without a full clone, and can write `seed/desired_services.generated.yaml`.
 [seed/intent_sources.yaml](seed/intent_sources.yaml) is the nintent input for name-reserved DesiredNodes and primary mDNS endpoints. It is used before nodeutils collection to generate the minimal Ansible bootstrap inventory.
 
@@ -107,7 +105,7 @@ If the required Custom Fields do not exist in Nautobot, Device create/update cal
 
 Observed service fields on a Device are host-local facts, not the cluster-wide desired service catalog. nodeutils reports `observed_services.ollama` when it sees a running Docker container or systemd unit, but that observation never decides desired service-group membership; desired placement lives in nintent `DesiredServicePlacement` records. Live capacity checks such as GPU utilization, VRAM pressure, CPU load, and request latency should come from a monitoring system before an automation agent sends work to that endpoint.
 
-Cluster-level desired services and their placements are persisted in nintent (`DesiredService` and `DesiredServicePlacement`). They answer "what should run where?" rather than "what does this Device currently provide?" The Service Placement Review reads those models directly; there is no file catalog acting as a second source of truth.
+Cluster-level desired services and their placements are persisted in nintent (`DesiredService` and `DesiredServicePlacement`). They answer "what should run where?" rather than "what does this Device currently provide?" Service-placement drift is computed only by `nctl drift`; nauto persists observations but does not maintain a second drift engine.
 
 Repository-driven service discovery starts from [seed/service_repositories.yaml](seed/service_repositories.yaml). Only `url` is required:
 
@@ -197,26 +195,6 @@ AI_RESOURCE_REVIEW_LOG_PROMPT=false
 The Job sends `think=false` to Ollama so thinking-capable models return the final review in `response` instead of spending the request on a separate `thinking` trace.
 
 After syncing this repository and running `Seed Home Cluster` with `dry_run=false`, create a Nautobot Job Hook for `dcim.device` create and update events and select the `AI Resource Review` job. The job stores the LLM output in `ai_resource_review` and skips regeneration when the selected source facts have not changed.
-
-The Service Placement Review Job reuses the AI resource review LLM settings by default when `dry_run=false`:
-
-```bash
-AI_RESOURCE_REVIEW_URL=http://localhost:11434/api/generate
-AI_RESOURCE_REVIEW_MODEL=llama3.1:8b
-AI_RESOURCE_REVIEW_TIMEOUT=30
-```
-
-Use these optional variables only when service placement should call a different endpoint, model, or timeout:
-
-```bash
-SERVICE_PLACEMENT_REVIEW_URL=http://localhost:11434/api/generate
-SERVICE_PLACEMENT_REVIEW_MODEL=llama3.1:8b
-SERVICE_PLACEMENT_REVIEW_TIMEOUT=45
-# Optional, for debugging prompt/model behavior. Logs a bounded prompt preview.
-SERVICE_PLACEMENT_REVIEW_LOG_PROMPT=false
-```
-
-Run `Service Placement Review` manually at first. With `dry_run=true`, it reads the persisted desired services and active placements plus observed Device facts and logs the deterministic drift report without calling the LLM. With `dry_run=false`, it additionally requests a JSON placement review from the configured LLM endpoint. The report separates `missing_service`, `wrong_node`, `stale_observation`, `insufficient_actual_facts`, and `os_mismatch` drift, and a missing or stopped observation is reported as drift rather than removing the placement from the desired convergence target.
 
 ## Current Scope
 
