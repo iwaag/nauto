@@ -16,6 +16,7 @@ from django.db import transaction
 from nautobot.apps.jobs import BooleanVar, IntegerVar, Job, StringVar
 
 from .nodeutils_ingest_batch import IngestError, ReportInput, load_report_batch, parse_report_content
+from .nodeutils_ingest_summary import build_ingest_summary
 
 DEFAULT_POLICY_FILE = "seed/nodeutils_ingest.yaml"
 DEFAULT_MAX_REPORT_BYTES = 2 * 1024 * 1024
@@ -129,29 +130,43 @@ class IngestNodeutilsInventory(Job):
         inputs = self.load_inputs(report_batch)
 
         self.dry_run = dry_run
-        ingested_count = 0
-        skipped_count = 0
+        results: list[dict[str, Any]] = []
         with transaction.atomic():
             for item in inputs:
                 try:
                     report = self.parse_report(item, max_report_bytes)
                     self.validate_report(report, policy, max_report_age_hours)
-                    self.ingest_report(report, policy, item.source)
-                    ingested_count += 1
+                    results.append(self.ingest_report(report, policy, item.source))
                 except IngestError as exc:
-                    skipped_count += 1
                     self.logger.warning("Skipping %s: %s", item.source, exc)
+                    results.append(
+                        {
+                            "source": item.source,
+                            "outcome": "skipped",
+                            "changed_fields": [],
+                            "error": str(exc),
+                        }
+                    )
 
+            summary_payload = build_ingest_summary(results, dry_run=dry_run)
+            counts = summary_payload["summary"]
             self.logger.info(
-                "Batch summary: total=%s ingested=%s skipped=%s dry_run=%s",
-                len(inputs),
-                ingested_count,
-                skipped_count,
+                "Batch summary: total=%s created=%s updated=%s unchanged=%s skipped=%s dry_run=%s",
+                counts["total"],
+                counts["created"],
+                counts["updated"],
+                counts["unchanged"],
+                counts["skipped"],
                 dry_run,
             )
             if dry_run:
                 transaction.set_rollback(True)
                 self.logger.warning("Dry run complete; no changes were committed.")
+
+        self.create_file(
+            "nodeutils-ingest-summary.json",
+            json.dumps(summary_payload, sort_keys=True, indent=2, ensure_ascii=True) + "\n",
+        )
 
     def load_policy(self, policy_file: str) -> dict[str, Any]:
         path = Path(policy_file)
@@ -187,7 +202,7 @@ class IngestNodeutilsInventory(Job):
         if collected_at < datetime.now(timezone.utc) - timedelta(hours=max_report_age_hours):
             raise IngestError(f"report is stale: collected_at={collected_at.isoformat()}")
 
-    def ingest_report(self, report: dict[str, Any], policy: dict[str, Any], source: str) -> None:
+    def ingest_report(self, report: dict[str, Any], policy: dict[str, Any], source: str) -> dict[str, Any]:
         identity = report["identity"]
         facts = report["facts"]
         device = self.match_device(identity)
@@ -214,8 +229,16 @@ class IngestNodeutilsInventory(Job):
             report_hash,
             ", ".join(changes) if changes else "none",
         )
+        outcome = "created" if device is None else "updated" if changes else "unchanged"
+        result = {
+            "source": source,
+            "outcome": outcome,
+            "device": getattr(device, "name", None) or identity.get("hostname") or identity.get("fqdn"),
+            "changed_fields": changes,
+            "report_hash": report_hash,
+        }
         if self.dry_run:
-            return
+            return result
 
         if device is None:
             device = self.create_device(payload)
@@ -225,6 +248,8 @@ class IngestNodeutilsInventory(Job):
             self.logger.info("Updated Device %s from %s", device.name, source)
         else:
             self.logger.info("No Device changes needed for %s", device.name)
+        result["device"] = device.name
+        return result
 
     def match_device(self, identity: dict[str, Any]) -> Any | None:
         Device = get_model("dcim.Device")
