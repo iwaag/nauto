@@ -142,11 +142,18 @@ editor seed/intent_sources.yaml
 ```
 
 This file declares desired nodes, endpoints, services, service placements, and
-typed node operational configuration. Bootstrap inventory generation uses only
-the eligible desired nodes and their mDNS endpoints. Production service groups
-come exclusively from active placements and the Ansible-owned deployment-profile
-map; observed facts supply only the production exporter's audited actual-state
-fields.
+optional node operational overrides. Ordinary observed Linux/macOS hosts do not
+need an override row: nctl derives policy and OS from fresh nodeutils facts and
+selects a unique usable local endpoint (or unique primary). Keep override rows
+only for genuine exceptions such as declared HAOS, non-default power/laptop
+behavior, a non-default Ansible port, or a forced endpoint/path.
+
+Bootstrap inventory generation uses only the eligible desired nodes and their
+mDNS endpoints. Production service groups come exclusively from active
+placements and the Ansible-owned deployment-profile map; observed facts supply
+only the production exporter's audited actual-state fields. The removed
+`desired_node_operational_configs` YAML root is invalid; use
+`desired_node_operational_overrides`.
 
 Host-side scripts and their local configuration examples live in the separate `nodeutils` repository.
 

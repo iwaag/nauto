@@ -221,94 +221,25 @@ desired_service_placements:
     assignment_source: yaml
     config: {}
 
-desired_node_operational_configs:
+desired_node_operational_overrides:
   - desired_node: agmbp2019
-    actual_state_policy: required
-    expected_host_os: linux
-    connection_path: local
     power_control: wol
     is_laptop: true
-    local_endpoint:
-      name: primary
-      endpoint_type: primary
 
   - desired_node: agmbp2018
-    actual_state_policy: required
-    expected_host_os: linux
-    connection_path: local
     power_control: wol
     is_laptop: true
-    local_endpoint:
-      name: primary
-      endpoint_type: primary
 
   - desired_node: agpc
-    actual_state_policy: required
-    expected_host_os: linux
-    connection_path: local
     power_control: wol
-    is_laptop: false
-    local_endpoint:
-      name: primary
-      endpoint_type: primary
 
   - desired_node: agstudio
-    actual_state_policy: required
-    expected_host_os: macos
-    connection_path: local
     power_control: macos_sleep
-    is_laptop: false
-    local_endpoint:
-      name: primary
-      endpoint_type: primary
 
   - desired_node: agbach
-    actual_state_policy: required
-    expected_host_os: macos
-    connection_path: local
     power_control: macos_sleep
     is_laptop: true
-    local_endpoint:
-      name: primary
-      endpoint_type: primary
-
-  - desired_node: agprometheus
-    actual_state_policy: required
-    expected_host_os: linux
-    connection_path: local
-    power_control: none
-    is_laptop: false
-    local_endpoint:
-      name: primary
-      endpoint_type: primary
-
-  - desired_node: aggrafana
-    actual_state_policy: required
-    expected_host_os: linux
-    connection_path: local
-    power_control: none
-    is_laptop: false
-    local_endpoint:
-      name: primary
-      endpoint_type: primary
-
-  - desired_node: agnomad
-    actual_state_policy: required
-    expected_host_os: linux
-    connection_path: local
-    power_control: none
-    is_laptop: false
-    local_endpoint:
-      name: primary
-      endpoint_type: primary
 
   - desired_node: aghaos
-    actual_state_policy: declared
     declared_host_os: haos
-    connection_path: local
-    power_control: none
-    is_laptop: false
     ansible_port: 2222
-    local_endpoint:
-      name: primary
-      endpoint_type: primary
