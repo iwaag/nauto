@@ -189,6 +189,11 @@ The ingestor rejects malformed, stale, oversized, or unsupported-schema reports.
 Location, role, status, device type, manufacturer, and tags come from
 server-side policy, not from host authority.
 
+For `nodeutils.inventory.v2`, nested
+`facts.services.observed_services.*.managed_files` metadata is retained
+unchanged in the existing `observed_services` custom field. This is digest/path/status/size/time
+metadata only; nauto does not store managed-file contents or create a separate applied-digest model.
+
 The AI resource review Job Hook uses these Nautobot server environment variables:
 
 ```bash
