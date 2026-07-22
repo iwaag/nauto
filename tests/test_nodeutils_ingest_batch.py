@@ -25,17 +25,17 @@ class LoadReportBatchTest(unittest.TestCase):
             """
             reports:
               - source: agpc
-                text: '{"schema_version": "nodeutils.inventory.v1"}'
+                text: '{"schema_version": "nodeutils.inventory.v2"}'
               - source: " agstudio "
-                text: '{"schema_version": "nodeutils.inventory.v1", "identity": {}}'
+                text: '{"schema_version": "nodeutils.inventory.v2", "identity": {}}'
             """
         )
 
         self.assertEqual(
             inputs,
             [
-                ReportInput("agpc", '{"schema_version": "nodeutils.inventory.v1"}'),
-                ReportInput("agstudio", '{"schema_version": "nodeutils.inventory.v1", "identity": {}}'),
+                ReportInput("agpc", '{"schema_version": "nodeutils.inventory.v2"}'),
+                ReportInput("agstudio", '{"schema_version": "nodeutils.inventory.v2", "identity": {}}'),
             ],
         )
 
@@ -72,16 +72,16 @@ class LoadReportBatchTest(unittest.TestCase):
                 reports:
                   - source: agpc
                     text:
-                      schema_version: nodeutils.inventory.v1
+                      schema_version: nodeutils.inventory.v2
                 """
             )
 
 
 class ParseReportTextTest(unittest.TestCase):
     def test_parses_json_report_content(self) -> None:
-        report = parse_report_content(ReportInput("agpc", '{"schema_version": "nodeutils.inventory.v1"}'), 1024)
+        report = parse_report_content(ReportInput("agpc", '{"schema_version": "nodeutils.inventory.v2"}'), 1024)
 
-        self.assertEqual(report, {"schema_version": "nodeutils.inventory.v1"})
+        self.assertEqual(report, {"schema_version": "nodeutils.inventory.v2"})
 
     def test_rejects_oversized_report_content(self) -> None:
         with self.assertRaisesRegex(IngestError, "report is too large"):

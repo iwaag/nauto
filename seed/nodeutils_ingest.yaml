@@ -1,5 +1,5 @@
 schema_versions:
-  - nodeutils.inventory.v1
+  - nodeutils.inventory.v2
 
 defaults:
   location: Home

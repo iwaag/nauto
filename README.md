@@ -179,10 +179,10 @@ Example `report_batch`:
 reports:
   - source: agpc
     text: |
-      {"schema_version": "nodeutils.inventory.v1", "...": "..."}
+      {"schema_version": "nodeutils.inventory.v2", "...": "..."}
   - source: agstudio
     text: |
-      {"schema_version": "nodeutils.inventory.v1", "...": "..."}
+      {"schema_version": "nodeutils.inventory.v2", "...": "..."}
 ```
 
 The ingestor rejects malformed, stale, oversized, or unsupported-schema reports.
