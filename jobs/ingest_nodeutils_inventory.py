@@ -15,8 +15,10 @@ from django.db import transaction
 
 from nautobot.apps.jobs import BooleanVar, IntegerVar, Job, StringVar
 
+from . import proxmox_upsert
 from .nodeutils_ingest_batch import IngestError, ReportInput, load_report_batch, parse_report_content
 from .nodeutils_ingest_summary import build_ingest_summary
+from .proxmox_ingest import validate_proxmox_facts
 
 DEFAULT_POLICY_FILE = "seed/nodeutils_ingest.yaml"
 DEFAULT_MAX_REPORT_BYTES = 2 * 1024 * 1024
@@ -249,6 +251,86 @@ class IngestNodeutilsInventory(Job):
         else:
             self.logger.info("No Device changes needed for %s", device.name)
         result["device"] = device.name
+
+        proxmox_facts = facts.get("proxmox")
+        if isinstance(proxmox_facts, dict):
+            result["proxmox"] = self.ingest_proxmox(proxmox_facts, device, policy, source)
+        return result
+
+    def ingest_proxmox(
+        self, proxmox_facts: dict[str, Any], device: Any, policy: dict[str, Any], source: str
+    ) -> dict[str, Any]:
+        """Validate and upsert one report's ``facts.proxmox`` subtree (plan.md Section 5.5).
+
+        Wraps ``proxmox_upsert.ingest_proxmox_platform`` with real Nautobot managers/lookups
+        and a real per-guest ``transaction.atomic()`` savepoint. A malformed report or invalid
+        shared platform identity produces no virtualization writes for this report (validation
+        happens before any Cluster/VM object is touched); a single bad guest rolls back only
+        that guest inside its own savepoint and marks the platform observation ``partial``.
+        """
+        proxmox_policy = policy.get("proxmox") if isinstance(policy.get("proxmox"), dict) else {}
+        max_skew = int(proxmox_policy.get("max_future_skew_seconds", 300))
+        received_at = datetime.now(timezone.utc)
+
+        validation = validate_proxmox_facts(proxmox_facts, received_at=received_at, max_future_skew_seconds=max_skew)
+        if not validation.valid:
+            self.logger.warning("%s: Proxmox facts rejected: %s", source, validation.errors)
+            return {
+                "identity_source": None,
+                "scope_key": None,
+                "cluster_name": None,
+                "cluster_id": None,
+                "observation_state": "partial",
+                "object_counts": {kind: {a: 0 for a in ("created", "updated", "unchanged", "skipped")} for kind in ("cluster", "vm", "vminterface", "ip")},
+                "changed_fields": {},
+                "guest_errors": validation.errors,
+            }
+
+        Cluster = get_model("virtualization.Cluster")
+        ClusterType = get_model("virtualization.ClusterType")
+        VirtualMachine = get_model("virtualization.VirtualMachine")
+        Role = get_model("extras.Role")
+
+        cluster_type = self.lookup_name_or_slug(ClusterType, "Proxmox VE")
+        if cluster_type is None:
+            self.logger.warning("%s: Proxmox VE ClusterType is not seeded; skipping virtualization writes.", source)
+            return {
+                "identity_source": validation.cluster.get("name_source") if validation.cluster else None,
+                "scope_key": None,
+                "cluster_name": validation.cluster.get("name") if validation.cluster else None,
+                "cluster_id": None,
+                "observation_state": "partial",
+                "object_counts": {kind: {a: 0 for a in ("created", "updated", "unchanged", "skipped")} for kind in ("cluster", "vm", "vminterface", "ip")},
+                "changed_fields": {},
+                "guest_errors": [
+                    {"scope_kind": "platform", "scope_id": "cluster", "section": "cluster_identity", "code": "missing_seeded_prerequisite"}
+                ],
+            }
+
+        observer_device_id = str(device.pk) if device is not None and getattr(device, "pk", None) else None
+
+        result = proxmox_upsert.ingest_proxmox_platform(
+            validation=validation,
+            cluster_manager=Cluster.objects,
+            vm_manager=VirtualMachine.objects,
+            cluster_type=cluster_type,
+            make_cluster=lambda: Cluster(cluster_type=cluster_type),
+            make_vm=lambda cluster: VirtualMachine(cluster=cluster),
+            status_lookup=self.lookup_status,
+            role_lookup=lambda name: self.lookup_name_or_slug(Role, name),
+            observer_device_id=observer_device_id,
+            save_fn=validated_save,
+            dry_run=self.dry_run,
+            guest_atomic=transaction.atomic,
+        )
+        self.logger.info(
+            "%s: Proxmox cluster=%s scope_key=%s state=%s counts=%s",
+            source,
+            result["cluster_name"],
+            result["scope_key"],
+            result["observation_state"],
+            result["object_counts"],
+        )
         return result
 
     def match_device(self, identity: dict[str, Any]) -> Any | None:
