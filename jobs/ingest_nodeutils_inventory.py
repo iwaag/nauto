@@ -371,7 +371,11 @@ class IngestNodeutilsInventory(Job):
             dry_run=self.dry_run,
             guest_atomic=transaction.atomic,
             vminterface_manager=VMInterface.objects,
-            make_interface=lambda: VMInterface(),
+            # VMInterface.status is a required native field with no dedicated proxmox_* mapping
+            # in plan.md Section 5.4; a fixed "Active" status (seeded for the
+            # virtualization.vminterface content type) satisfies the model constraint without
+            # claiming any Proxmox-observed evidence about interface operational state.
+            make_interface=lambda: VMInterface(status=self.lookup_status("Active")),
             find_ip=find_ip,
             create_ip=create_ip,
             ip_related_elsewhere=ip_related_elsewhere,

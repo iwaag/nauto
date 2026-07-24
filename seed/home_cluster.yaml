@@ -19,6 +19,8 @@ statuses:
       - "dcim.device"
       - "dcim.location"
       - "virtualization.virtualmachine"
+      - "virtualization.vminterface"
+      - "ipam.ipaddress"
   - name: "Offline"
     slug: "offline"
     color: "9e9e9e"
