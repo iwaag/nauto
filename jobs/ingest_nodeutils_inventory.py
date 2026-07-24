@@ -216,14 +216,20 @@ class IngestNodeutilsInventory(Job):
             raise IngestError(f"report is stale: collected_at={collected_at.isoformat()}")
 
     def ingest_report(self, report: dict[str, Any], policy: dict[str, Any], source: str) -> dict[str, Any]:
+        """Run one normal Device (+ Proxmox, when present) persistence path in both preview and
+        apply (sidefix1 problem_fixplan.md Section 5.2). ``dry_run`` no longer short-circuits
+        here: the owning ``run()`` transaction is the sole commit/rollback decision (Step 1), so
+        this method always executes the same sequence and always returns the same result shape.
+        """
         identity = report["identity"]
         facts = report["facts"]
         device = self.match_device(identity)
+        device_is_new = device is None
         defaults = policy.get("defaults") if isinstance(policy.get("defaults"), dict) else {}
         allow_create = defaults.get("allow_create", True)
         allow_update = defaults.get("allow_update", True)
 
-        action = "create" if device is None else "update"
+        action = "create" if device_is_new else "update"
         if action == "create" and not allow_create:
             raise IngestError("policy does not allow creating new Devices")
         if action == "update" and not allow_update:
@@ -242,7 +248,7 @@ class IngestNodeutilsInventory(Job):
             report_hash,
             ", ".join(changes) if changes else "none",
         )
-        outcome = "created" if device is None else "updated" if changes else "unchanged"
+        outcome = "created" if device_is_new else "updated" if changes else "unchanged"
         result = {
             "source": source,
             "outcome": outcome,
@@ -250,10 +256,8 @@ class IngestNodeutilsInventory(Job):
             "changed_fields": changes,
             "report_hash": report_hash,
         }
-        if self.dry_run:
-            return result
 
-        if device is None:
+        if device_is_new:
             device = self.create_device(payload)
             self.logger.info("Created Device %s from %s", device.name, source)
         elif changes:
@@ -265,8 +269,50 @@ class IngestNodeutilsInventory(Job):
 
         proxmox_facts = facts.get("proxmox")
         if isinstance(proxmox_facts, dict):
-            result["proxmox"] = self.ingest_proxmox(proxmox_facts, device, policy, source)
+            if device_is_new:
+                # Section 4.4: a rolled-back preview's Device UUID is not apply-stable, so its
+                # derived Proxmox standalone-fallback scope key would not be either. Report a
+                # truthful two-stage precondition instead of an unstable Cluster scope; the
+                # operator applies the Device first, then reruns preview with the persisted UUID.
+                result["proxmox"] = self.build_new_device_proxmox_precondition(proxmox_facts, source)
+            else:
+                result["proxmox"] = self.ingest_proxmox(proxmox_facts, device, policy, source)
         return result
+
+    def build_new_device_proxmox_precondition(self, proxmox_facts: dict[str, Any], source: str) -> dict[str, Any]:
+        """Section 4.4 two-stage precondition for a not-yet-persisted observer Device.
+
+        Uses the pure ``validate_proxmox_facts`` only to surface a bounded, informational
+        ``cluster_name``/``identity_source`` for operator review; it never derives or claims a
+        stable ``scope_key`` or performs any Cluster/VM/VMInterface/IP write for this report.
+        """
+        received_at = datetime.now(timezone.utc)
+        validation = validate_proxmox_facts(proxmox_facts, received_at=received_at)
+        cluster_info = validation.cluster if validation.valid and validation.cluster else {}
+        self.logger.warning(
+            "%s: observer Device is not yet persisted; Proxmox ingest deferred until after Device apply.",
+            source,
+        )
+        return {
+            "identity_source": cluster_info.get("name_source"),
+            "scope_key": None,
+            "cluster_name": cluster_info.get("name"),
+            "cluster_id": None,
+            "observation_state": "partial",
+            "object_counts": {
+                kind: {a: 0 for a in ("created", "updated", "unchanged", "skipped")}
+                for kind in ("cluster", "vm", "vminterface", "ip")
+            },
+            "changed_fields": {},
+            "guest_errors": [
+                {
+                    "scope_kind": "platform",
+                    "scope_id": "cluster",
+                    "section": "cluster_identity",
+                    "code": "observer_device_not_persisted",
+                }
+            ],
+        }
 
     def ingest_proxmox(
         self, proxmox_facts: dict[str, Any], device: Any, policy: dict[str, Any], source: str
