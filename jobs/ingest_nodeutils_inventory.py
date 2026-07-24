@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,19 @@ from .proxmox_ingest import validate_proxmox_facts
 
 DEFAULT_POLICY_FILE = "seed/nodeutils_ingest.yaml"
 DEFAULT_MAX_REPORT_BYTES = 2 * 1024 * 1024
+
+
+@dataclass
+class IpLookupResult:
+    """Result of resolving an IPAddress by (Namespace, host) — sidefix2/plan.md Section 3.2.
+
+    ``status`` is one of "found", "not_found", "ambiguous". Duck-typed rather than imported
+    from ``proxmox_interfaces`` so this Django-facing module has no import-order dependency on
+    that pure module's own loading mechanism (``_load_proxmox_interfaces()``).
+    """
+
+    status: str
+    ip: Any | None = None
 
 
 def get_model(*labels: str):
@@ -368,6 +382,8 @@ class IngestNodeutilsInventory(Job):
 
         VMInterface = get_model("virtualization.VMInterface")
         IPAddress = get_model("ipam.IPAddress")
+        Namespace = get_model("ipam.Namespace")
+        Prefix = get_model("ipam.Prefix")
         # Nautobot's IP-to-interface relation is a through model exposing mutually exclusive
         # ``interface``/``vm_interface`` fields (report2.0.md Step 0 live introspection). We
         # resolve it lazily here rather than at module import time, since it is only reachable
@@ -376,14 +392,60 @@ class IngestNodeutilsInventory(Job):
             "ipam.IPAddressToInterface", "ipam.IPAddressAssignment"
         ) if _model_exists("ipam.IPAddressToInterface") or _model_exists("ipam.IPAddressAssignment") else None
 
-        def find_ip(address: str, prefix: int) -> Any | None:
-            return IPAddress.objects.filter(host=address, mask_length=prefix).first()
+        # sidefix2/plan.md Section 3.1: exactly one Namespace named "Global" is the intended
+        # scope for every Proxmox-observed IP. Zero or multiple matches is a shared IPAM
+        # prerequisite failure, not permission to select an arbitrary Namespace.
+        global_namespace_matches = list(Namespace.objects.filter(name="Global"))
+        if len(global_namespace_matches) != 1:
+            self.logger.warning(
+                "%s: Nautobot Namespace 'Global' is not uniquely resolvable (%d matches); skipping virtualization writes.",
+                source, len(global_namespace_matches),
+            )
+            return {
+                "identity_source": validation.cluster.get("name_source") if validation.cluster else None,
+                "scope_key": None,
+                "cluster_name": validation.cluster.get("name") if validation.cluster else None,
+                "cluster_id": None,
+                "observation_state": "partial",
+                "object_counts": {kind: {a: 0 for a in ("created", "updated", "unchanged", "skipped")} for kind in ("cluster", "vm", "vminterface", "ip")},
+                "changed_fields": {},
+                "guest_errors": [
+                    {"scope_kind": "platform", "scope_id": "namespace", "section": "cluster_identity", "code": "namespace_ambiguous"}
+                ],
+            }
+        global_namespace = global_namespace_matches[0]
 
-        def create_ip(address: str, prefix: int) -> Any:
+        def resolve_host(host: str) -> IpLookupResult:
+            # sidefix2/plan.md Section 3.2: the real uniqueness key is (Namespace, host), never
+            # (host, mask_length), and ``.first()`` must never mask a corrupt-data ambiguity.
+            matches = list(IPAddress.objects.filter(host=host, parent__namespace=global_namespace))
+            if not matches:
+                return IpLookupResult(status="not_found")
+            if len(matches) > 1:
+                return IpLookupResult(status="ambiguous")
+            return IpLookupResult(status="found", ip=matches[0])
+
+        def find_parent_prefix(host: str) -> Any | None:
+            # sidefix2/plan.md Section 3.3: mirrors IPAddress._get_closest_parent() exactly —
+            # a missing parent Prefix is real ledger data, never invented here.
+            try:
+                return Prefix.objects.filter(namespace=global_namespace).get_closest_parent(host, include_self=True)
+            except Prefix.DoesNotExist:
+                return None
+
+        def create_ip(address: str, prefix: int, parent_prefix: Any) -> Any:
             status = self.lookup_status("Active")
-            ip = IPAddress(address=f"{address}/{prefix}", status=status)
+            ip = IPAddress(address=f"{address}/{prefix}", status=status, parent=parent_prefix)
             validated_save(ip)
             return ip
+
+        def find_ip_by_id(ip_id: str | None) -> Any | None:
+            if not ip_id:
+                return None
+            try:
+                return IPAddress.objects.filter(pk=ip_id).first()
+            except (ValueError, TypeError):
+                return None
 
         def ip_related_elsewhere(ip_obj: Any, interface: Any) -> bool:
             if IPAddressToInterface is None:
@@ -424,8 +486,10 @@ class IngestNodeutilsInventory(Job):
             # virtualization.vminterface content type) satisfies the model constraint without
             # claiming any Proxmox-observed evidence about interface operational state.
             make_interface=lambda: VMInterface(status=self.lookup_status("Active")),
-            find_ip=find_ip,
+            resolve_host=resolve_host,
+            find_parent_prefix=find_parent_prefix,
             create_ip=create_ip,
+            find_ip_by_id=find_ip_by_id,
             ip_related_elsewhere=ip_related_elsewhere,
             attach_ip=attach_ip,
             detach_ip=detach_ip,

@@ -29,10 +29,6 @@ RECEIVED_AT = datetime(2026, 7, 25, 12, 0, 0, tzinfo=timezone.utc)
 T0 = "2026-07-25T12:00:00+00:00"
 
 
-class ValidationError(Exception):
-    """Stand-in for django.core.exceptions.ValidationError."""
-
-
 class FakeQuerySet(list):
     def first(self):
         return self[0] if self else None
@@ -111,25 +107,32 @@ def make_env(*, seed_ips=(), parent_prefixes=()):
         obj._kind = "iface"
         return obj
 
-    def find_ip(address, prefix):
-        # Today's real defect: matches by (host, mask_length), not by host alone.
-        for ip in ip_store:
-            if ip.address_str == address and ip.prefix == prefix:
-                return ip
-        return None
+    def resolve_host(address):
+        # Fixed contract (sidefix2/plan.md Section 3.2): resolve by host alone within the one
+        # modeled Namespace, mirroring Nautobot's real (Namespace, host) uniqueness.
+        matches = [ip for ip in ip_store if ip.address_str == address]
+        if not matches:
+            return proxmox_interfaces.IpLookupResult(status="not_found")
+        if len(matches) > 1:
+            return proxmox_interfaces.IpLookupResult(status="ambiguous")
+        return proxmox_interfaces.IpLookupResult(status="found", ip=matches[0])
 
-    def create_ip(address, prefix):
-        # Models Nautobot's real (Namespace, host) uniqueness constraint and its
-        # "no suitable parent Prefix" validation, both enforced by validated_save()
-        # on the live model (see report0.md Section 1/2).
-        if any(ip.address_str == address for ip in ip_store):
-            raise ValidationError("IP address with this Parent and Host already exists.")
-        if address not in parent_prefixes:
-            raise ValidationError(f"No suitable parent Prefix for {address} exists in Namespace Global")
-        ip = FakeModel(address_str=address, prefix=prefix)
+    def find_parent_prefix(address):
+        return "fake-parent-prefix" if address in parent_prefixes else None
+
+    def create_ip(address, prefix, parent_prefix=None):
+        ip = FakeModel(address_str=address, prefix=prefix, parent_prefix=parent_prefix)
         ip._kind = "ip"
         save_fn(ip)
         return ip
+
+    def find_ip_by_id(ip_id):
+        if not ip_id:
+            return None
+        for ip in ip_store:
+            if str(ip.pk) == str(ip_id):
+                return ip
+        return None
 
     def ip_related_elsewhere(ip_obj, interface):
         return any(a.ip_address is ip_obj and a.vm_interface is not None and a.vm_interface is not interface for a in assignment_store)
@@ -147,7 +150,8 @@ def make_env(*, seed_ips=(), parent_prefixes=()):
         "ip_store": ip_store, "assignment_store": assignment_store,
         "cluster_manager": None, "vm_manager": None, "vminterface_manager": None,
         "cluster_type": cluster_type, "make_cluster": make_cluster, "make_vm": make_vm,
-        "make_interface": make_interface, "find_ip": find_ip, "create_ip": create_ip,
+        "make_interface": make_interface, "resolve_host": resolve_host, "find_parent_prefix": find_parent_prefix,
+        "create_ip": create_ip, "find_ip_by_id": find_ip_by_id,
         "ip_related_elsewhere": ip_related_elsewhere, "attach_ip": attach_ip, "detach_ip": detach_ip,
         "status_lookup": statuses.get, "role_lookup": roles.get, "save_fn": save_fn,
     }
@@ -226,15 +230,17 @@ def run_ingest(facts, env):
         status_lookup=env["status_lookup"], role_lookup=env["role_lookup"],
         observer_device_id="device-uuid-1", save_fn=env["save_fn"], guest_atomic=contextlib.nullcontext,
         vminterface_manager=FakeManager(env["iface_store"]), make_interface=env["make_interface"],
-        find_ip=env["find_ip"], create_ip=env["create_ip"], ip_related_elsewhere=env["ip_related_elsewhere"],
+        resolve_host=env["resolve_host"], find_parent_prefix=env["find_parent_prefix"],
+        create_ip=env["create_ip"], find_ip_by_id=env["find_ip_by_id"],
+        ip_related_elsewhere=env["ip_related_elsewhere"],
         attach_ip=env["attach_ip"], detach_ip=env["detach_ip"],
     )
 
 
 class ExistingHostDifferentMaskTests(unittest.TestCase):
-    """report0.md Section 2 / plan.md 1.1: agdnsmasq case. Today's find_ip(host, mask)
-    fails to locate the existing /32 row for an observed /24, so create_ip is attempted
-    and the fake store's real-uniqueness check raises -- this is the defect."""
+    """report0.md Section 2 / plan.md 1.1: agdnsmasq case. resolve_host(host) must locate
+    the existing /32 row for an observed /24 by host identity alone (sidefix2 Step 1 fix),
+    reusing it rather than attempting a duplicate create."""
 
     def test_existing_32_row_is_reused_for_observed_24_without_raising(self) -> None:
         existing = FakeModel(address_str="192.168.0.2", prefix=32, dns_name="agdnsmasq.home.arpa")
@@ -258,9 +264,9 @@ class ExistingHostDifferentMaskTests(unittest.TestCase):
 
 
 class MissingParentPrefixTests(unittest.TestCase):
-    """report0.md Section 3 / plan.md 1.2: aghaos case. Today's create_ip has no graceful
-    path for a missing parent Prefix; the ValidationError propagates and rolls back the
-    whole guest instead of producing a bounded ip.skipped conflict."""
+    """report0.md Section 3 / plan.md 1.2: aghaos case. find_parent_prefix() is checked
+    before create_ip is ever called (sidefix2 Step 1 fix), so a missing parent Prefix
+    produces a bounded ip.skipped conflict instead of rolling back the whole guest."""
 
     def test_missing_parent_prefix_does_not_fail_the_whole_guest(self) -> None:
         env = make_env(parent_prefixes=())  # no Prefix covers the observed IPv6 address
@@ -287,10 +293,10 @@ class GuestSavepointCountTruthTests(unittest.TestCase):
     def test_failure_after_vm_upsert_does_not_leave_a_created_count(self) -> None:
         env = make_env(parent_prefixes=())
 
-        def raising_find_ip(address, prefix):
+        def raising_resolve_host(address):
             raise RuntimeError("simulated unexpected interface-stage failure")
 
-        env["find_ip"] = raising_find_ip
+        env["resolve_host"] = raising_resolve_host
         facts = _base_facts(qemu_vms=[
             _qemu_guest(interfaces={
                 "config_interfaces": [], "agent_interfaces": [joined_qemu()],

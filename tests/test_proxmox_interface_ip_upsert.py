@@ -129,17 +129,30 @@ def make_env():
         obj._kind = "iface"
         return obj
 
-    def find_ip(address, prefix):
-        for ip in ip_store:
-            if ip.address_str == address and ip.prefix == prefix:
-                return ip
-        return None
+    def resolve_host(address):
+        matches = [ip for ip in ip_store if ip.address_str == address]
+        if not matches:
+            return proxmox_interfaces.IpLookupResult(status="not_found")
+        if len(matches) > 1:
+            return proxmox_interfaces.IpLookupResult(status="ambiguous")
+        return proxmox_interfaces.IpLookupResult(status="found", ip=matches[0])
 
-    def create_ip(address, prefix):
-        ip = FakeModel(address_str=address, prefix=prefix)
+    def find_parent_prefix(address):
+        return "fake-parent-prefix"  # every address has a covering Prefix in this fixture
+
+    def create_ip(address, prefix, parent_prefix=None):
+        ip = FakeModel(address_str=address, prefix=prefix, parent_prefix=parent_prefix)
         ip._kind = "ip"
         save_fn(ip)
         return ip
+
+    def find_ip_by_id(ip_id):
+        if not ip_id:
+            return None
+        for ip in ip_store:
+            if str(ip.pk) == str(ip_id):
+                return ip
+        return None
 
     def ip_related_elsewhere(ip_obj, interface):
         for a in assignment_store:
@@ -171,8 +184,10 @@ def make_env():
         "make_cluster": make_cluster,
         "make_vm": make_vm,
         "make_interface": make_interface,
-        "find_ip": find_ip,
+        "resolve_host": resolve_host,
+        "find_parent_prefix": find_parent_prefix,
         "create_ip": create_ip,
+        "find_ip_by_id": find_ip_by_id,
         "ip_related_elsewhere": ip_related_elsewhere,
         "attach_ip": attach_ip,
         "detach_ip": detach_ip,
@@ -289,8 +304,10 @@ def run_ingest(facts, env, *, observer_device_id="device-uuid-1"):
         guest_atomic=contextlib.nullcontext,
         vminterface_manager=env["vminterface_manager"],
         make_interface=env["make_interface"],
-        find_ip=env["find_ip"],
+        resolve_host=env["resolve_host"],
+        find_parent_prefix=env["find_parent_prefix"],
         create_ip=env["create_ip"],
+        find_ip_by_id=env["find_ip_by_id"],
         ip_related_elsewhere=env["ip_related_elsewhere"],
         attach_ip=env["attach_ip"],
         detach_ip=env["detach_ip"],
@@ -597,6 +614,52 @@ class ConvergenceTests(unittest.TestCase):
         self.assertEqual(result["object_counts"]["ip"]["created"], 1)
         addrs = {a.ip_address.address_str for a in env["assignment_store"] if a.vm_interface is iface}
         self.assertEqual(addrs, {"10.0.0.9"})
+
+    def test_prefix_only_evidence_change_does_not_detach_the_same_ip(self) -> None:
+        # sidefix2/plan.md Section 3.4: prior managed key at one prefix, new observed key at
+        # the same host but a different prefix, both resolving to the same IP identity — the
+        # relation must never look detached merely because the evidence key's mask changed.
+        env = make_env()
+        self._ingest_with_ip(env, ip_addr="10.0.0.5", prefix=24, observed_at=T0)
+        iface = env["iface_store"][0]
+        ip_obj = env["ip_store"][0]
+        self.assertEqual(len(env["assignment_store"]), 1)
+
+        result = self._ingest_with_ip(env, ip_addr="10.0.0.5", prefix=32, observed_at=T1)
+        self.assertEqual(result["object_counts"]["ip"]["created"], 0, "must reuse, not create a second IPAddress")
+        self.assertEqual(len(env["ip_store"]), 1)
+        assignments = [a for a in env["assignment_store"] if a.vm_interface is iface]
+        self.assertEqual(len(assignments), 1, "the relation must remain attached throughout")
+        self.assertIs(assignments[0].ip_address, ip_obj)
+        managed = iface.custom_field_data["proxmox_managed_ip_evidence"]["managed"]
+        self.assertEqual(set(managed), {"10.0.0.5/32"})
+        self.assertEqual(managed["10.0.0.5/32"]["ip_id"], str(ip_obj.pk))
+
+    def test_same_host_multiple_prefixes_one_generation_is_ambiguous(self) -> None:
+        # sidefix2/plan.md Section 3.4 step 2 / Section 5.1 case 9: one generation reporting
+        # the same host with two different prefixes must fail closed, not pick by order.
+        env = make_env()
+        facts = _base_facts(qemu_vms=[_qemu_guest(
+            interfaces={"config_interfaces": [], "agent_interfaces": [], "joined_interfaces": [
+                joined_qemu(addrs=[
+                    {"address": "10.0.0.5", "type": "ipv4", "prefix": 24},
+                    {"address": "10.0.0.5", "type": "ipv4", "prefix": 32},
+                ])
+            ], "unmatched": []},
+        )])
+        result = run_ingest(facts, env)
+        self.assertEqual(env["ip_store"], [])
+        self.assertEqual(env["assignment_store"], [])
+        codes = [e["code"] for e in result["guest_errors"]]
+        self.assertIn("ip_observed_prefix_ambiguous", codes)
+
+    def test_missing_parent_prefix_is_bounded_conflict_not_exception(self) -> None:
+        env = make_env()
+        env["find_parent_prefix"] = lambda address: None
+        result = self._ingest_with_ip(env, ip_addr="10.0.0.5", prefix=24)
+        self.assertEqual(env["ip_store"], [])
+        codes = [e["code"] for e in result["guest_errors"]]
+        self.assertIn("ip_parent_prefix_missing", codes)
 
     def test_authoritative_empty_detaches_managed(self) -> None:
         env = make_env()

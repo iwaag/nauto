@@ -275,24 +275,39 @@ class IpSyncOutcome:
     conflicts: list[dict[str, Any]] = field(default_factory=list)
 
 
+@dataclass
+class IpLookupResult:
+    """Result of resolving an IPAddress by (Namespace, host) — sidefix2/plan.md Section 3.2.
+
+    ``status`` is one of "found", "not_found", "ambiguous". A Namespace-scoped host lookup
+    never uses ``.first()`` — an ambiguity is a fail-closed ledger conflict, not a silent pick.
+    """
+
+    status: str
+    ip: Any | None = None
+
+
 def sync_interface_ips(
     *,
     interface: Any,
     candidates: list[IPCandidate],
     complete: bool,
     observed_at_str: str,
-    find_ip: Callable[[str, int], Any | None],
-    create_ip: Callable[[str, int], Any],
+    resolve_host: Callable[[str], IpLookupResult],
+    find_parent_prefix: Callable[[str], Any | None],
+    create_ip: Callable[[str, int, Any], Any],
+    find_ip_by_id: Callable[[str | None], Any | None],
     ip_related_elsewhere: Callable[[Any, Any], bool],
     attach_ip: Callable[[Any, Any], None],
     detach_ip: Callable[[Any, Any], None],
 ) -> IpSyncOutcome:
-    """Implement Section 5.5 rules 1-3, 6-7 for one already-matched, MAC-compatible interface.
+    """Implement sidefix2/plan.md Section 3.4 for one already-matched, MAC-compatible interface.
 
-    ``find_ip``/``create_ip`` operate on ``(address, prefix)``. ``ip_related_elsewhere``
-    reports whether the given IPAddress already has an incompatible foreign VMInterface
-    relation (rule 6): true means "do not touch; this is a local conflict for this
-    candidate", never a detach of the foreign relation.
+    A Nautobot ``IPAddress``'s identity is ``(Namespace, host)``, not ``(host, prefix)`` — this
+    resolves the desired IP object once per distinct observed host, then converges the managed
+    evidence map (keyed by the exact observed ``address/prefix``) and the attach/detach relation
+    set (keyed by resolved IP identity) as two related but distinct operations, so a prefix-only
+    evidence change can never look like "the relation disappeared."
     """
     prior = cf_get(interface, "proxmox_managed_ip_evidence") or {}
     prior_managed: dict[str, dict[str, Any]] = dict(prior.get("managed") or {})
@@ -305,34 +320,81 @@ def sync_interface_ips(
     outcome = IpSyncOutcome(managed={})
     new_keys = {c.key: c for c in candidates}
 
+    # Step 1: group candidates by host; a host observed with more than one distinct prefix in
+    # the same generation is a local observation conflict, never resolved by pick-first-seen.
+    by_host: dict[str, list[IPCandidate]] = {}
+    for candidate in candidates:
+        by_host.setdefault(candidate.address, []).append(candidate)
+
+    ambiguous_hosts: set[str] = set()
+    for host, host_candidates in by_host.items():
+        if len({c.prefix for c in host_candidates}) > 1:
+            ambiguous_hosts.add(host)
+            outcome.conflicts.append({"host": host, "reason": "ip_observed_prefix_ambiguous"})
+
+    resolved_ip_ids: set[str] = set()
+
     for key, candidate in new_keys.items():
+        if candidate.address in ambiguous_hosts:
+            continue
         if key in prior_managed:
-            # Still observed: keep the managed entry, refresh its evidence time.
+            # Still observed under the exact same key: keep the managed entry, refresh its
+            # evidence time, no resolution call needed.
             entry = dict(prior_managed[key])
             entry["evidence_observed_at"] = observed_at_str
             outcome.managed[key] = entry
+            if entry.get("ip_id"):
+                resolved_ip_ids.add(str(entry["ip_id"]))
             continue
-        ip_obj = find_ip(candidate.address, candidate.prefix)
-        if ip_obj is not None and ip_related_elsewhere(ip_obj, interface):
-            outcome.conflicts.append({"key": key, "reason": "foreign_ip_relation"})
-            continue
-        if ip_obj is None:
-            ip_obj = create_ip(candidate.address, candidate.prefix)
-            outcome.created += 1
-        else:
-            outcome.attached_existing += 1
-        attach_ip(interface, ip_obj)
-        outcome.managed[key] = {
-            "ip_id": str(getattr(ip_obj, "pk", None)),
-            "evidence_observed_at": observed_at_str,
-        }
 
+        result = resolve_host(candidate.address)
+        if result.status == "ambiguous":
+            outcome.conflicts.append({"key": key, "reason": "ip_address_ambiguous"})
+            continue
+
+        if result.status == "found":
+            ip_obj = result.ip
+            if ip_related_elsewhere(ip_obj, interface):
+                outcome.conflicts.append({"key": key, "reason": "foreign_ip_relation"})
+                continue
+            outcome.attached_existing += 1
+        else:
+            parent_prefix = find_parent_prefix(candidate.address)
+            if parent_prefix is None:
+                outcome.conflicts.append({"key": key, "reason": "ip_parent_prefix_missing"})
+                continue
+            ip_obj = create_ip(candidate.address, candidate.prefix, parent_prefix)
+            outcome.created += 1
+
+        attach_ip(interface, ip_obj)
+        ip_id = str(getattr(ip_obj, "pk", None))
+        outcome.managed[key] = {"ip_id": ip_id, "evidence_observed_at": observed_at_str}
+        resolved_ip_ids.add(ip_id)
+
+    # Step 2: detach only prior managed relations whose IP identity is absent from every
+    # successfully resolved new managed entry — a prefix-only key change for the same IP ID
+    # must never be read as "the relation disappeared."
     for key, entry in prior_managed.items():
-        if key not in new_keys:
-            ip_obj = find_ip(*_split_key(key))
-            if ip_obj is not None:
-                detach_ip(interface, ip_obj)
-            outcome.detached += 1
+        if key in outcome.managed:
+            continue
+        ip_id = entry.get("ip_id")
+        if ip_id and str(ip_id) in resolved_ip_ids:
+            continue
+
+        ip_obj = find_ip_by_id(ip_id) if ip_id else None
+        if ip_obj is None:
+            host, _ = _split_key(key)
+            fallback = resolve_host(host)
+            if fallback.status == "found":
+                ip_obj = fallback.ip
+            else:
+                # Missing/ambiguous legacy reference: retain the relation as-is, never guess.
+                outcome.managed[key] = entry
+                outcome.conflicts.append({"key": key, "reason": "managed_ip_reference_unresolved"})
+                continue
+
+        detach_ip(interface, ip_obj)
+        outcome.detached += 1
 
     if len(outcome.managed) > MAX_MANAGED_IPS_PER_INTERFACE:
         outcome.managed = dict(list(outcome.managed.items())[:MAX_MANAGED_IPS_PER_INTERFACE])
@@ -367,8 +429,10 @@ def sync_guest_interfaces(
     cluster: Any,
     vminterface_manager: Any,
     make_interface: Callable[[], Any],
-    find_ip: Callable[[str, int], Any | None],
-    create_ip: Callable[[str, int], Any],
+    resolve_host: Callable[[str], IpLookupResult],
+    find_parent_prefix: Callable[[str], Any | None],
+    create_ip: Callable[[str, int, Any], Any],
+    find_ip_by_id: Callable[[str | None], Any | None],
     ip_related_elsewhere: Callable[[Any, Any], bool],
     attach_ip: Callable[[Any, Any], None],
     detach_ip: Callable[[Any, Any], None],
@@ -419,7 +483,8 @@ def sync_guest_interfaces(
 
             ip_outcome = sync_interface_ips(
                 interface=iface, candidates=candidate.ip_candidates, complete=config_complete,
-                observed_at_str=observed_at_str, find_ip=find_ip, create_ip=create_ip,
+                observed_at_str=observed_at_str, resolve_host=resolve_host, find_parent_prefix=find_parent_prefix,
+                create_ip=create_ip, find_ip_by_id=find_ip_by_id,
                 ip_related_elsewhere=ip_related_elsewhere, attach_ip=attach_ip, detach_ip=detach_ip,
             )
             cf_set(iface, "proxmox_managed_ip_evidence", {"managed": ip_outcome.managed, "evidence_observed_at": observed_at_str})
@@ -456,7 +521,8 @@ def sync_guest_interfaces(
 
         ip_outcome = sync_interface_ips(
             interface=existing, candidates=candidate.ip_candidates, complete=config_complete,
-            observed_at_str=observed_at_str, find_ip=find_ip, create_ip=create_ip,
+            observed_at_str=observed_at_str, resolve_host=resolve_host, find_parent_prefix=find_parent_prefix,
+            create_ip=create_ip, find_ip_by_id=find_ip_by_id,
             ip_related_elsewhere=ip_related_elsewhere, attach_ip=attach_ip, detach_ip=detach_ip,
         )
         new_evidence = {"managed": ip_outcome.managed, "evidence_observed_at": observed_at_str if config_complete else cf_get(existing, "proxmox_managed_ip_evidence", {}).get("evidence_observed_at")}
@@ -491,8 +557,13 @@ def sync_guest_interfaces(
                 continue
             prior = cf_get(existing, "proxmox_managed_ip_evidence") or {}
             prior_managed = dict(prior.get("managed") or {})
-            for key in list(prior_managed):
-                ip_obj = find_ip(*_split_key(key))
+            for key, entry in prior_managed.items():
+                ip_id = entry.get("ip_id")
+                ip_obj = find_ip_by_id(ip_id) if ip_id else None
+                if ip_obj is None:
+                    host, _ = _split_key(key)
+                    fallback = resolve_host(host)
+                    ip_obj = fallback.ip if fallback.status == "found" else None
                 if ip_obj is not None:
                     detach_ip(existing, ip_obj)
                 counts["ip"]["skipped"] += 1
