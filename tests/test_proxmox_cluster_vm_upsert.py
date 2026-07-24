@@ -626,5 +626,66 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual(result["object_counts"]["vm"]["created"], 1)
 
 
+class SanitizeCreatedIdsTests(unittest.TestCase):
+    """sidefix1 problem_fixplan.md Section 5.4/Step 3: a preview-created Cluster's real-but-
+    rollback-only pk must not be reported as an apply-stable id; a pre-existing Cluster's id
+    must still be reported even when the caller asks for sanitization."""
+
+    def test_newly_created_cluster_id_is_none_when_sanitized(self) -> None:
+        env = make_env()
+        facts = _base_facts()
+        validation = validate_proxmox_facts(facts, received_at=RECEIVED_AT)
+        result = proxmox_upsert.ingest_proxmox_platform(
+            validation=validation,
+            cluster_manager=env["cluster_manager"],
+            vm_manager=env["vm_manager"],
+            cluster_type=env["cluster_type"],
+            make_cluster=env["make_cluster"],
+            make_vm=env["make_vm"],
+            status_lookup=env["status_lookup"],
+            role_lookup=env["role_lookup"],
+            observer_device_id="device-uuid-1",
+            save_fn=env["save_fn"],
+            sanitize_created_ids=True,
+        )
+        self.assertEqual(result["object_counts"]["cluster"]["created"], 1)
+        # save_fn still ran and allocated a real pk on the in-memory object...
+        self.assertIsNotNone(env["cluster_store"][0].pk)
+        # ...but the reported id is sanitized because this call's own match found nothing.
+        self.assertIsNone(result["cluster_id"])
+
+    def test_newly_created_cluster_id_is_present_when_not_sanitized(self) -> None:
+        env = make_env()
+        result = run_ingest(_base_facts(), env)
+        self.assertEqual(result["object_counts"]["cluster"]["created"], 1)
+        self.assertIsNotNone(result["cluster_id"])
+
+    def test_preexisting_cluster_id_is_retained_even_when_sanitized(self) -> None:
+        env = make_env()
+        # First call (not sanitized) creates the real Cluster row, as apply would.
+        run_ingest(_base_facts(), env)
+        real_id = env["cluster_store"][0].pk
+
+        # Second call, same before image, asks for sanitization -- but the Cluster already
+        # existed before *this* call, so its id is not preview-temporary and must be kept.
+        facts = _base_facts()
+        validation = validate_proxmox_facts(facts, received_at=RECEIVED_AT)
+        result = proxmox_upsert.ingest_proxmox_platform(
+            validation=validation,
+            cluster_manager=env["cluster_manager"],
+            vm_manager=env["vm_manager"],
+            cluster_type=env["cluster_type"],
+            make_cluster=env["make_cluster"],
+            make_vm=env["make_vm"],
+            status_lookup=env["status_lookup"],
+            role_lookup=env["role_lookup"],
+            observer_device_id="device-uuid-1",
+            save_fn=env["save_fn"],
+            sanitize_created_ids=True,
+        )
+        self.assertEqual(result["object_counts"]["cluster"]["unchanged"], 1)
+        self.assertEqual(result["cluster_id"], str(real_id))
+
+
 if __name__ == "__main__":
     unittest.main()

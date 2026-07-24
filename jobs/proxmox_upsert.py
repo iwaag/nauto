@@ -396,6 +396,7 @@ def ingest_proxmox_platform(
     ip_related_elsewhere: Callable[[Any, Any], bool] | None = None,
     attach_ip: Callable[[Any, Any], None] | None = None,
     detach_ip: Callable[[Any, Any], None] | None = None,
+    sanitize_created_ids: bool = False,
 ) -> dict[str, Any]:
     """Validate-and-upsert one report's already-validated ``facts.proxmox`` subtree.
 
@@ -403,6 +404,13 @@ def ingest_proxmox_platform(
     caller must reject invalid reports before calling this — Section 5.5: "Invalid top-level
     report or unsupported nested schema: no writes for that report"). Returns the bounded
     ``proxmox`` summary section described in plan.md Section 5.5.
+
+    ``sanitize_created_ids`` never changes what gets written (Step 1 already made every save
+    unconditional); it only controls the returned ``cluster_id``. When true and this call's
+    own Cluster match found no pre-existing row, ``cluster_id`` is reported as ``None`` instead
+    of the real-but-rollback-only primary key the caller's transaction just allocated
+    (sidefix1 problem_fixplan.md Section 5.4: "Database IDs allocated to rows created inside the
+    preview transaction are temporary and must not be presented as apply-stable identifiers.").
     """
     counts = {kind: {a: 0 for a in ("created", "updated", "unchanged", "skipped")} for kind in ("cluster", "vm", "vminterface", "ip")}
     changed_fields: dict[str, list[str]] = {}
@@ -440,6 +448,7 @@ def ingest_proxmox_platform(
         cluster_manager, cluster_type=cluster_type, scope_key=scope_key, name=name,
         name_source=name_source, observer_device_id=observer_device_id,
     )
+    cluster_is_new = match.obj is None
     if match.error_code:
         guest_errors.append({"scope_kind": "platform", "scope_id": scope_key, "section": "cluster_identity", "code": match.error_code})
         return _section(
@@ -464,13 +473,14 @@ def ingest_proxmox_platform(
     if cluster_outcome.changed_fields:
         changed_fields["cluster"] = cluster_outcome.changed_fields
     cluster = cluster_outcome.obj
+    reported_cluster_id = None if (sanitize_created_ids and cluster_is_new) else getattr(cluster, "pk", None)
 
     if cluster_outcome.action in ("stale_evidence", "conflicting_same_generation"):
         guest_errors.append(
             {"scope_kind": "platform", "scope_id": scope_key, "section": "cluster_identity", "code": cluster_outcome.error_code}
         )
         return _section(
-            identity_source=name_source, scope_key=scope_key, cluster_name=name, cluster_id=getattr(cluster, "pk", None),
+            identity_source=name_source, scope_key=scope_key, cluster_name=name, cluster_id=reported_cluster_id,
             observation_state="partial", counts=counts, changed_fields=changed_fields, guest_errors=guest_errors,
         )
 
@@ -584,6 +594,6 @@ def ingest_proxmox_platform(
 
     return _section(
         identity_source=name_source, scope_key=scope_key, cluster_name=getattr(cluster, "name", name),
-        cluster_id=getattr(cluster, "pk", None), observation_state=final_state,
+        cluster_id=reported_cluster_id, observation_state=final_state,
         counts=counts, changed_fields=changed_fields, guest_errors=guest_errors,
     )

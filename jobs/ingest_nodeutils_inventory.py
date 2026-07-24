@@ -429,6 +429,7 @@ class IngestNodeutilsInventory(Job):
             ip_related_elsewhere=ip_related_elsewhere,
             attach_ip=attach_ip,
             detach_ip=detach_ip,
+            sanitize_created_ids=self.dry_run,
         )
         self.logger.info(
             "%s: Proxmox cluster=%s scope_key=%s state=%s counts=%s",
