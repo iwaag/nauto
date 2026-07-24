@@ -491,6 +491,13 @@ def ingest_proxmox_platform(
             vmid = guest.get("vmid")
             guest_name = guest.get("name") or f"{guest_type}-{vmid}"
             scope_id = f"{guest_type}:{vmid}"
+            # Section 3.6: allocate guest-local result state. Nothing here is merged into the
+            # platform-level counts/changed_fields/guest_errors until guest_atomic() exits
+            # successfully, so an exception anywhere in this guest's body leaves the platform
+            # accumulators exactly as they were before this guest started.
+            guest_counts = {kind: {a: 0 for a in ("created", "updated", "unchanged", "skipped")} for kind in ("vm", "vminterface", "ip")}
+            guest_changed_fields: dict[str, list[str]] = {}
+            guest_non_terminal_errors: list[dict[str, str]] = []
             try:
                 with guest_atomic():
                     guest_match = match_guest(vm_manager, cluster=cluster, guest_type=guest_type, vmid=vmid, name=guest_name)
@@ -530,9 +537,9 @@ def ingest_proxmox_platform(
                     )
                     if vm_outcome.action in ("stale_evidence", "conflicting_same_generation"):
                         raise ProxmoxUpsertError(vm_outcome.error_code)
-                    counts["vm"][_count_key(vm_outcome.action)] += 1
+                    guest_counts["vm"][_count_key(vm_outcome.action)] += 1
                     if vm_outcome.changed_fields:
-                        changed_fields[f"vm:{scope_id}"] = vm_outcome.changed_fields
+                        guest_changed_fields[f"vm:{scope_id}"] = vm_outcome.changed_fields
 
                     if interfaces_enabled:
                         vm_obj = vm_outcome.obj
@@ -567,23 +574,34 @@ def ingest_proxmox_platform(
                         )
                         for kind in ("vminterface", "ip"):
                             for action, value in iface_result.counts[kind].items():
-                                counts[kind][action] += value
+                                guest_counts[kind][action] += value
                         if iface_result.errors:
-                            guest_errors.extend(iface_result.errors)
+                            guest_non_terminal_errors.extend(iface_result.errors)
                         if iface_result.interface_evidence:
                             existing_evidence = cf_get(vm_obj, "proxmox_interface_evidence") or {}
                             merged_evidence = {**existing_evidence, **iface_result.interface_evidence}
                             if cf_get(vm_obj, "proxmox_interface_evidence") != merged_evidence:
                                 cf_set(vm_obj, "proxmox_interface_evidence", merged_evidence)
                                 save_fn(vm_obj)
-                                changed_fields.setdefault(f"vm:{scope_id}", [])
-                                if "proxmox_interface_evidence" not in changed_fields[f"vm:{scope_id}"]:
-                                    changed_fields[f"vm:{scope_id}"].append("proxmox_interface_evidence")
+                                guest_changed_fields.setdefault(f"vm:{scope_id}", [])
+                                if "proxmox_interface_evidence" not in guest_changed_fields[f"vm:{scope_id}"]:
+                                    guest_changed_fields[f"vm:{scope_id}"].append("proxmox_interface_evidence")
             except Exception as exc:  # noqa: BLE001 - Section 5.5: "Any exception rolls back" this guest only
+                # The guest_atomic() savepoint (if any) already rolled back every DB write for
+                # this guest; discard every local claim too so counts/changed_fields never
+                # describe a row that no longer exists inside this transaction.
                 platform_partial = True
                 counts["vm"]["skipped"] += 1
                 code = getattr(exc, "code", None) or "guest_upsert_failed"
                 guest_errors.append({"scope_kind": "guest", "scope_id": scope_id, "section": "identity", "code": code})
+            else:
+                # guest_atomic() exited successfully: merge this guest's local result state into
+                # the platform-level accumulators exactly once.
+                for kind in ("vm", "vminterface", "ip"):
+                    for action, value in guest_counts[kind].items():
+                        counts[kind][action] += value
+                changed_fields.update(guest_changed_fields)
+                guest_errors.extend(guest_non_terminal_errors)
 
     final_state = "partial" if platform_partial else "complete"
     final_detail = build_observation_detail(state=final_state, errors=guest_errors)
