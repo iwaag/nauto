@@ -33,6 +33,14 @@ def get_model(*labels: str):
     raise LookupError(f"None of these Nautobot models exist: {', '.join(labels)}")
 
 
+def _model_exists(label: str) -> bool:
+    try:
+        apps.get_model(label)
+    except LookupError:
+        return False
+    return True
+
+
 def has_field(model: Any, field_name: str) -> bool:
     try:
         model._meta.get_field(field_name)
@@ -309,6 +317,46 @@ class IngestNodeutilsInventory(Job):
 
         observer_device_id = str(device.pk) if device is not None and getattr(device, "pk", None) else None
 
+        VMInterface = get_model("virtualization.VMInterface")
+        IPAddress = get_model("ipam.IPAddress")
+        # Nautobot's IP-to-interface relation is a through model exposing mutually exclusive
+        # ``interface``/``vm_interface`` fields (report2.0.md Step 0 live introspection). We
+        # resolve it lazily here rather than at module import time, since it is only reachable
+        # once the Django app registry is populated.
+        IPAddressToInterface = get_model(
+            "ipam.IPAddressToInterface", "ipam.IPAddressAssignment"
+        ) if _model_exists("ipam.IPAddressToInterface") or _model_exists("ipam.IPAddressAssignment") else None
+
+        def find_ip(address: str, prefix: int) -> Any | None:
+            return IPAddress.objects.filter(host=address, mask_length=prefix).first()
+
+        def create_ip(address: str, prefix: int) -> Any:
+            status = self.lookup_status("Active")
+            ip = IPAddress(address=f"{address}/{prefix}", status=status)
+            validated_save(ip)
+            return ip
+
+        def ip_related_elsewhere(ip_obj: Any, interface: Any) -> bool:
+            if IPAddressToInterface is None:
+                return False
+            for assignment in IPAddressToInterface.objects.filter(ip_address=ip_obj):
+                vm_interface = getattr(assignment, "vm_interface", None)
+                if vm_interface is not None and vm_interface != interface:
+                    return True
+            return False
+
+        def attach_ip(interface: Any, ip_obj: Any) -> None:
+            if IPAddressToInterface is not None:
+                IPAddressToInterface.objects.get_or_create(vm_interface=interface, ip_address=ip_obj)
+            elif hasattr(interface, "ip_addresses"):
+                interface.ip_addresses.add(ip_obj)
+
+        def detach_ip(interface: Any, ip_obj: Any) -> None:
+            if IPAddressToInterface is not None:
+                IPAddressToInterface.objects.filter(vm_interface=interface, ip_address=ip_obj).delete()
+            elif hasattr(interface, "ip_addresses"):
+                interface.ip_addresses.remove(ip_obj)
+
         result = proxmox_upsert.ingest_proxmox_platform(
             validation=validation,
             cluster_manager=Cluster.objects,
@@ -322,6 +370,13 @@ class IngestNodeutilsInventory(Job):
             save_fn=validated_save,
             dry_run=self.dry_run,
             guest_atomic=transaction.atomic,
+            vminterface_manager=VMInterface.objects,
+            make_interface=lambda: VMInterface(),
+            find_ip=find_ip,
+            create_ip=create_ip,
+            ip_related_elsewhere=ip_related_elsewhere,
+            attach_ip=attach_ip,
+            detach_ip=detach_ip,
         )
         self.logger.info(
             "%s: Proxmox cluster=%s scope_key=%s state=%s counts=%s",

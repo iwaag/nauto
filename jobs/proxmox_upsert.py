@@ -30,6 +30,30 @@ ROLE_LXC = "lxc-container"
 CLUSTER_NAME_SOURCES = {"proxmox_cluster_name", "standalone_node_fallback"}
 
 
+def _load_proxmox_interfaces():
+    """Import ``proxmox_interfaces`` whether this module is loaded as part of the real
+    ``nauto.jobs`` package (production) or ad hoc via ``importlib.util.spec_from_file_location``
+    with no parent package (the pattern the test suite uses for every pure module in this
+    directory, mirroring ``proxmox_ingest``/``proxmox_upsert`` itself)."""
+    if __package__:
+        from importlib import import_module
+
+        return import_module(f"{__package__}.proxmox_interfaces")
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    module_name = "proxmox_interfaces"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    path = Path(__file__).resolve().parent / "proxmox_interfaces.py"
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 class ProxmoxUpsertError(RuntimeError):
     """Raised for a Cluster/guest-level failure that must roll back its own scope only."""
 
@@ -366,6 +390,13 @@ def ingest_proxmox_platform(
     save_fn: Callable[[Any], None],
     dry_run: bool,
     guest_atomic: Callable[[], Any] = contextlib.nullcontext,
+    vminterface_manager: Any | None = None,
+    make_interface: Callable[[], Any] | None = None,
+    find_ip: Callable[[str, int], Any | None] | None = None,
+    create_ip: Callable[[str, int], Any] | None = None,
+    ip_related_elsewhere: Callable[[Any, Any], bool] | None = None,
+    attach_ip: Callable[[Any, Any], None] | None = None,
+    detach_ip: Callable[[Any, Any], None] | None = None,
 ) -> dict[str, Any]:
     """Validate-and-upsert one report's already-validated ``facts.proxmox`` subtree.
 
@@ -378,6 +409,10 @@ def ingest_proxmox_platform(
     changed_fields: dict[str, list[str]] = {}
     guest_errors: list[dict[str, str]] = list(validation.errors)
     platform_partial = validation.state == "partial"
+
+    interfaces_enabled = vminterface_manager is not None and make_interface is not None
+    if interfaces_enabled:
+        proxmox_interfaces = _load_proxmox_interfaces()
 
     cluster_info = validation.cluster or {}
     name_source = cluster_info.get("name_source")
@@ -487,6 +522,52 @@ def ingest_proxmox_platform(
                     counts["vm"][_count_key(vm_outcome.action)] += 1
                     if vm_outcome.changed_fields:
                         changed_fields[f"vm:{scope_id}"] = vm_outcome.changed_fields
+
+                    if interfaces_enabled:
+                        vm_obj = vm_outcome.obj
+                        observation = guest.get("observation") if isinstance(guest.get("observation"), dict) else {}
+                        sections = observation.get("sections") if isinstance(observation.get("sections"), dict) else {}
+                        relevant_section = sections.get("agent_interfaces") if guest_type == "qemu" else sections.get("config")
+                        section_state = None
+                        section_time = None
+                        if isinstance(relevant_section, dict):
+                            section_state = relevant_section.get("state")
+                            section_time = relevant_section.get("evidence_observed_at")
+                        config_complete = (section_state or observation.get("state")) == "complete"
+                        interface_observed_at = section_time or validation.observed_at.isoformat()
+
+                        iface_result = proxmox_interfaces.sync_guest_interfaces(
+                            guest_type=guest_type,
+                            guest=guest,
+                            vm=vm_obj,
+                            cluster=cluster,
+                            vminterface_manager=vminterface_manager,
+                            make_interface=make_interface,
+                            find_ip=find_ip,
+                            create_ip=create_ip,
+                            ip_related_elsewhere=ip_related_elsewhere,
+                            attach_ip=attach_ip,
+                            detach_ip=detach_ip,
+                            save_fn=save_fn,
+                            dry_run=dry_run,
+                            observed_at_str=interface_observed_at,
+                            config_complete=config_complete,
+                        )
+                        for kind in ("vminterface", "ip"):
+                            for action, value in iface_result.counts[kind].items():
+                                counts[kind][action] += value
+                        if iface_result.errors:
+                            guest_errors.extend(iface_result.errors)
+                        if iface_result.interface_evidence:
+                            existing_evidence = cf_get(vm_obj, "proxmox_interface_evidence") or {}
+                            merged_evidence = {**existing_evidence, **iface_result.interface_evidence}
+                            if cf_get(vm_obj, "proxmox_interface_evidence") != merged_evidence:
+                                cf_set(vm_obj, "proxmox_interface_evidence", merged_evidence)
+                                if not dry_run:
+                                    save_fn(vm_obj)
+                                changed_fields.setdefault(f"vm:{scope_id}", [])
+                                if "proxmox_interface_evidence" not in changed_fields[f"vm:{scope_id}"]:
+                                    changed_fields[f"vm:{scope_id}"].append("proxmox_interface_evidence")
             except Exception as exc:  # noqa: BLE001 - Section 5.5: "Any exception rolls back" this guest only
                 platform_partial = True
                 counts["vm"]["skipped"] += 1
