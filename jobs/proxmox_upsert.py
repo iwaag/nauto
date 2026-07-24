@@ -248,6 +248,74 @@ def guest_disk_gb(guest_type: str, guest: dict[str, Any]) -> Any:
 
 
 # --------------------------------------------------------------------------------------
+# Storage-content ledger mapping (Section 5.4 Cluster table ``proxmox_storage_content``;
+# Section 5.3 multi-generation merge key ``(Cluster id, node, storage, content_type)``).
+# --------------------------------------------------------------------------------------
+
+
+def storage_content_key(scope: dict[str, Any]) -> str:
+    return f"{scope.get('node')}:{scope.get('storage')}:{scope.get('content_type')}"
+
+
+def build_storage_content_entry(scope: dict[str, Any]) -> dict[str, Any]:
+    items = list(scope.get("items") or [])[:2048]
+    return {
+        "node": scope.get("node"),
+        "storage": scope.get("storage"),
+        "content_type": scope.get("content_type"),
+        "state": scope.get("state"),
+        "last_attempted_at": scope.get("last_attempted_at"),
+        "evidence_observed_at": scope.get("evidence_observed_at"),
+        "omitted_error_count": scope.get("omitted_error_count", 0),
+        "errors": list(scope.get("errors") or [])[:128],
+        "items": [
+            {
+                "volid": item.get("volid"),
+                "content": item.get("content"),
+                "format": item.get("format"),
+                "size_bytes": item.get("size_bytes"),
+            }
+            for item in items
+        ],
+    }
+
+
+def merge_storage_content(
+    existing: dict[str, Any] | None, new_scopes: Iterable[dict[str, Any]]
+) -> tuple[dict[str, Any], bool]:
+    """Merge freshly validated storage-content scopes into the persisted Cluster map.
+
+    A ``complete`` scope fully replaces its key's prior entry. A ``partial`` scope (attempted
+    but failed collection this generation) advances only ``last_attempted_at``/errors while
+    retaining the prior key's ``evidence_observed_at``/``items`` when a prior entry exists
+    (Section 5.3: "a failed/unobserved key retains its prior evidence ... advances only
+    last_attempted_at/error state"). A key absent from ``new_scopes`` is left untouched.
+    Returns ``(merged_map, any_partial)`` where ``any_partial`` is true if any scope in this
+    generation was partial, so the caller can fold that into platform completeness (Section
+    5.5: "Cluster final freshness/completeness is written only after guest/storage processing
+    determines the final state.").
+    """
+    merged = dict(existing or {})
+    any_partial = False
+    for scope in new_scopes:
+        key = storage_content_key(scope)
+        entry = build_storage_content_entry(scope)
+        if entry["state"] == "partial":
+            any_partial = True
+            prior = merged.get(key)
+            if prior is not None:
+                entry = {
+                    **prior,
+                    "state": "partial",
+                    "last_attempted_at": entry["last_attempted_at"],
+                    "omitted_error_count": entry["omitted_error_count"],
+                    "errors": entry["errors"],
+                }
+        merged[key] = entry
+    return merged, any_partial
+
+
+# --------------------------------------------------------------------------------------
 # Freshness-aware generic upsert (Section 5.3 freshness rules, Section 5.5 no-op rule)
 # --------------------------------------------------------------------------------------
 
@@ -458,6 +526,11 @@ def ingest_proxmox_platform(
             observation_state="partial", counts=counts, changed_fields=changed_fields, guest_errors=guest_errors,
         )
 
+    existing_storage_content = cf_get(match.obj, "proxmox_storage_content") if match.obj is not None else None
+    storage_content_map, storage_partial = merge_storage_content(existing_storage_content, validation.storage_content)
+    if storage_partial:
+        platform_partial = True
+
     cluster_native = {"name": name, "comments": "Managed by nauto Proxmox ingest (devdocs/big/vm/p2)."}
     cluster_cf = {
         "proxmox_observer_device_id": observer_device_id,
@@ -465,6 +538,7 @@ def ingest_proxmox_platform(
         "proxmox_scope_key": scope_key,
         "proxmox_observed_node_names": list(cluster_info.get("observed_node_names") or []),
         "proxmox_node_count": cluster_info.get("node_count"),
+        "proxmox_storage_content": storage_content_map,
     }
     cluster_outcome = upsert_with_freshness(
         existing=match.obj, make_new=make_cluster, native_fields=cluster_native, cf_fields=cluster_cf,

@@ -168,6 +168,29 @@ def _lxc_guest(**overrides):
     return guest
 
 
+def _storage_scope(**overrides):
+    scope = {
+        "node": "aghub",
+        "storage": "local",
+        "content_type": "vztmpl",
+        "state": "complete",
+        "last_attempted_at": T0,
+        "evidence_observed_at": T0,
+        "omitted_error_count": 0,
+        "errors": [],
+        "items": [
+            {
+                "volid": "local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst",
+                "content": "vztmpl",
+                "format": "tzst",
+                "size_bytes": 123,
+            }
+        ],
+    }
+    scope.update(overrides)
+    return scope
+
+
 def _qemu_guest(**overrides):
     guest = {
         "guest_type": "qemu",
@@ -685,6 +708,109 @@ class SanitizeCreatedIdsTests(unittest.TestCase):
         )
         self.assertEqual(result["object_counts"]["cluster"]["unchanged"], 1)
         self.assertEqual(result["cluster_id"], str(real_id))
+
+
+class StorageContentLedgerTests(unittest.TestCase):
+    """Section 5.4 Cluster table ``proxmox_storage_content`` / Section 5.3 storage-content
+    multi-generation merge key ``(Cluster id, node, storage, content_type)``."""
+
+    def test_complete_scope_persists_exact_volid(self) -> None:
+        env = make_env()
+        facts = _base_facts(storage_content=[_storage_scope()])
+        result = run_ingest(facts, env)
+        self.assertEqual(result["observation_state"], "complete")
+        cluster = env["cluster_store"][0]
+        entry = cluster.custom_field_data["proxmox_storage_content"]["aghub:local:vztmpl"]
+        self.assertEqual(entry["state"], "complete")
+        self.assertEqual(
+            entry["items"][0]["volid"], "local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst"
+        )
+        self.assertIn("cluster", result["changed_fields"])
+        self.assertIn("proxmox_storage_content", result["changed_fields"]["cluster"])
+
+    def test_newer_complete_scope_replaces_prior_entry(self) -> None:
+        env = make_env()
+        run_ingest(_base_facts(storage_content=[_storage_scope()]), env)
+        facts2 = _base_facts(
+            observed_at=T1,
+            storage_content=[
+                _storage_scope(
+                    last_attempted_at=T1,
+                    evidence_observed_at=T1,
+                    items=[{"volid": "local:vztmpl/new-template.tar.zst", "content": "vztmpl", "format": "tzst", "size_bytes": 9}],
+                )
+            ],
+        )
+        run_ingest(facts2, env)
+        entry = env["cluster_store"][0].custom_field_data["proxmox_storage_content"]["aghub:local:vztmpl"]
+        self.assertEqual(entry["items"][0]["volid"], "local:vztmpl/new-template.tar.zst")
+        self.assertEqual(entry["evidence_observed_at"], T1)
+
+    def test_partial_scope_retains_prior_evidence_and_marks_platform_partial(self) -> None:
+        env = make_env()
+        run_ingest(_base_facts(storage_content=[_storage_scope()]), env)
+        facts2 = _base_facts(
+            observed_at=T1,
+            storage_content=[
+                _storage_scope(state="partial", last_attempted_at=T1, evidence_observed_at=None, items=[])
+            ],
+        )
+        result = run_ingest(facts2, env)
+        entry = env["cluster_store"][0].custom_field_data["proxmox_storage_content"]["aghub:local:vztmpl"]
+        # Prior complete evidence (items/evidence_observed_at) is retained, not erased.
+        self.assertEqual(entry["state"], "partial")
+        self.assertEqual(entry["evidence_observed_at"], T0)
+        self.assertEqual(
+            entry["items"][0]["volid"], "local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst"
+        )
+        self.assertEqual(entry["last_attempted_at"], T1)
+        self.assertEqual(result["observation_state"], "partial")
+
+    def test_unobserved_scope_is_left_untouched(self) -> None:
+        env = make_env()
+        run_ingest(_base_facts(storage_content=[_storage_scope()]), env)
+        # Generation 2 reports no storage scopes at all (e.g. transient upstream omission).
+        run_ingest(_base_facts(observed_at=T1, storage_content=[]), env)
+        entry = env["cluster_store"][0].custom_field_data["proxmox_storage_content"]["aghub:local:vztmpl"]
+        self.assertEqual(entry["state"], "complete")
+        self.assertEqual(entry["evidence_observed_at"], T0)
+
+    def test_multiple_storage_scopes_keyed_independently(self) -> None:
+        env = make_env()
+        facts = _base_facts(
+            storage_content=[
+                _storage_scope(),
+                _storage_scope(storage="local-lvm", items=[{"volid": "local-lvm:vztmpl/other.tar.zst", "content": "vztmpl", "format": None, "size_bytes": None}]),
+            ]
+        )
+        result = run_ingest(facts, env)
+        storage_map = env["cluster_store"][0].custom_field_data["proxmox_storage_content"]
+        self.assertEqual(set(storage_map), {"aghub:local:vztmpl", "aghub:local-lvm:vztmpl"})
+        self.assertEqual(result["observation_state"], "complete")
+
+    def test_identical_repeat_storage_content_is_still_noop(self) -> None:
+        env = make_env()
+        run_ingest(_base_facts(storage_content=[_storage_scope()]), env)
+        pk = env["cluster_store"][0].pk
+        result = run_ingest(_base_facts(storage_content=[_storage_scope()]), env)
+        self.assertEqual(result["object_counts"]["cluster"]["unchanged"], 1)
+        self.assertEqual(env["cluster_store"][0].pk, pk)
+        self.assertNotIn("cluster", result["changed_fields"])
+
+
+class MergeStorageContentPureTests(unittest.TestCase):
+    def test_storage_content_key_format(self) -> None:
+        key = proxmox_upsert.storage_content_key({"node": "aghub", "storage": "local", "content_type": "vztmpl"})
+        self.assertEqual(key, "aghub:local:vztmpl")
+
+    def test_merge_reports_any_partial(self) -> None:
+        merged, any_partial = proxmox_upsert.merge_storage_content(None, [_storage_scope(state="partial")])
+        self.assertTrue(any_partial)
+        self.assertEqual(merged["aghub:local:vztmpl"]["state"], "partial")
+
+    def test_merge_complete_scope_not_partial(self) -> None:
+        merged, any_partial = proxmox_upsert.merge_storage_content(None, [_storage_scope()])
+        self.assertFalse(any_partial)
 
 
 if __name__ == "__main__":
