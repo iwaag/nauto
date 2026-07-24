@@ -269,7 +269,6 @@ def upsert_with_freshness(
     observed_at_cf_key: str,
     observed_at_value: datetime,
     save_fn: Callable[[Any], None],
-    dry_run: bool,
 ) -> UpsertOutcome:
     """Apply Section 5.3/5.5 freshness and no-op-diff rules to one Cluster or VM row.
 
@@ -277,6 +276,9 @@ def upsert_with_freshness(
     generation. Equal timestamps with equal values are a no-op; equal timestamps with any
     differing allowlisted value are ``conflicting_same_generation``; an older incoming
     timestamp is ``stale_evidence`` and never mutates the object.
+
+    Always calls ``save_fn`` for a create/update (sidefix1 Section 5.1/5.3: preview safety is
+    the caller's transaction-rollback boundary, not a lower-level save-suppression Boolean).
     """
     observed_at_str = observed_at_value.isoformat()
 
@@ -288,8 +290,7 @@ def upsert_with_freshness(
             cf_set(obj, key, value)
         cf_set(obj, observed_at_cf_key, observed_at_str)
         changed = sorted([*native_fields, *cf_fields, observed_at_cf_key])
-        if not dry_run:
-            save_fn(obj)
+        save_fn(obj)
         return UpsertOutcome(obj, "create", changed)
 
     existing_observed = parse_iso(cf_get(existing, observed_at_cf_key))
@@ -321,8 +322,7 @@ def upsert_with_freshness(
 
     if not changed:
         return UpsertOutcome(existing, "noop", [])
-    if not dry_run:
-        save_fn(existing)
+    save_fn(existing)
     return UpsertOutcome(existing, "update", sorted(changed))
 
 
@@ -388,7 +388,6 @@ def ingest_proxmox_platform(
     role_lookup: Callable[[str], Any | None],
     observer_device_id: str | None,
     save_fn: Callable[[Any], None],
-    dry_run: bool,
     guest_atomic: Callable[[], Any] = contextlib.nullcontext,
     vminterface_manager: Any | None = None,
     make_interface: Callable[[], Any] | None = None,
@@ -459,7 +458,7 @@ def ingest_proxmox_platform(
     cluster_outcome = upsert_with_freshness(
         existing=match.obj, make_new=make_cluster, native_fields=cluster_native, cf_fields=cluster_cf,
         observed_at_cf_key="proxmox_observed_at", observed_at_value=validation.observed_at,
-        save_fn=save_fn, dry_run=dry_run,
+        save_fn=save_fn,
     )
     counts["cluster"][_count_key(cluster_outcome.action)] += 1
     if cluster_outcome.changed_fields:
@@ -515,7 +514,7 @@ def ingest_proxmox_platform(
                         make_new=lambda cl=cluster: make_vm(cl),
                         native_fields=native_fields, cf_fields=guest_cf,
                         observed_at_cf_key="proxmox_observed_at", observed_at_value=validation.observed_at,
-                        save_fn=save_fn, dry_run=dry_run,
+                        save_fn=save_fn,
                     )
                     if vm_outcome.action in ("stale_evidence", "conflicting_same_generation"):
                         raise ProxmoxUpsertError(vm_outcome.error_code)
@@ -549,7 +548,6 @@ def ingest_proxmox_platform(
                             attach_ip=attach_ip,
                             detach_ip=detach_ip,
                             save_fn=save_fn,
-                            dry_run=dry_run,
                             observed_at_str=interface_observed_at,
                             config_complete=config_complete,
                         )
@@ -563,8 +561,7 @@ def ingest_proxmox_platform(
                             merged_evidence = {**existing_evidence, **iface_result.interface_evidence}
                             if cf_get(vm_obj, "proxmox_interface_evidence") != merged_evidence:
                                 cf_set(vm_obj, "proxmox_interface_evidence", merged_evidence)
-                                if not dry_run:
-                                    save_fn(vm_obj)
+                                save_fn(vm_obj)
                                 changed_fields.setdefault(f"vm:{scope_id}", [])
                                 if "proxmox_interface_evidence" not in changed_fields[f"vm:{scope_id}"]:
                                     changed_fields[f"vm:{scope_id}"].append("proxmox_interface_evidence")
@@ -579,8 +576,7 @@ def ingest_proxmox_platform(
     if cf_get(cluster, "proxmox_observation_state") != final_state or cf_get(cluster, "proxmox_observation_detail") != final_detail:
         cf_set(cluster, "proxmox_observation_state", final_state)
         cf_set(cluster, "proxmox_observation_detail", final_detail)
-        if not dry_run:
-            save_fn(cluster)
+        save_fn(cluster)
         cluster_changed = changed_fields.setdefault("cluster", [])
         for key in ("proxmox_observation_state", "proxmox_observation_detail"):
             if key not in cluster_changed:

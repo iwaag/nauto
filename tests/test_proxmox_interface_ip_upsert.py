@@ -272,7 +272,7 @@ def joined_lxc(config_slot="net0", mac="aa:bb:cc:dd:ee:02", bridge="vmbr0", gues
     return entry
 
 
-def run_ingest(facts, env, *, observer_device_id="device-uuid-1", dry_run=False):
+def run_ingest(facts, env, *, observer_device_id="device-uuid-1"):
     validation = validate_proxmox_facts(facts, received_at=RECEIVED_AT)
     assert validation.valid, validation.errors
     return proxmox_upsert.ingest_proxmox_platform(
@@ -286,7 +286,6 @@ def run_ingest(facts, env, *, observer_device_id="device-uuid-1", dry_run=False)
         role_lookup=env["role_lookup"],
         observer_device_id=observer_device_id,
         save_fn=env["save_fn"],
-        dry_run=dry_run,
         guest_atomic=contextlib.nullcontext,
         vminterface_manager=env["vminterface_manager"],
         make_interface=env["make_interface"],

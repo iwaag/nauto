@@ -185,7 +185,7 @@ def _qemu_guest(**overrides):
     return guest
 
 
-def run_ingest(facts, env, *, observer_device_id="device-uuid-1", dry_run=False, guest_atomic=contextlib.nullcontext):
+def run_ingest(facts, env, *, observer_device_id="device-uuid-1", guest_atomic=contextlib.nullcontext):
     validation = validate_proxmox_facts(facts, received_at=RECEIVED_AT)
     assert validation.valid, validation.errors
     return proxmox_upsert.ingest_proxmox_platform(
@@ -199,7 +199,6 @@ def run_ingest(facts, env, *, observer_device_id="device-uuid-1", dry_run=False,
         role_lookup=env["role_lookup"],
         observer_device_id=observer_device_id,
         save_fn=env["save_fn"],
-        dry_run=dry_run,
         guest_atomic=guest_atomic,
     )
 
@@ -560,7 +559,6 @@ class TransactionTests(unittest.TestCase):
             role_lookup=env["role_lookup"],
             observer_device_id="device-uuid-1",
             save_fn=env["save_fn"],
-            dry_run=False,
         )
         self.assertEqual(result["object_counts"]["vm"]["created"], 2)  # good qemu + good lxc
         self.assertEqual(result["observation_state"], "partial")
@@ -593,7 +591,6 @@ class TransactionTests(unittest.TestCase):
             role_lookup=env["role_lookup"],
             observer_device_id="device-uuid-1",
             save_fn=env["save_fn"],
-            dry_run=False,
             guest_atomic=failing_atomic_for_second_call,
         )
         self.assertEqual(len(env["vm_store"]), 2)  # guest #2 rolled back, #1 and #3 committed
@@ -624,21 +621,9 @@ class TransactionTests(unittest.TestCase):
             role_lookup=env["role_lookup"],
             observer_device_id="device-uuid-1",
             save_fn=env["save_fn"],
-            dry_run=False,
         )
         self.assertEqual(result["object_counts"]["cluster"]["created"], 1)
         self.assertEqual(result["object_counts"]["vm"]["created"], 1)
-
-
-class DryRunTests(unittest.TestCase):
-    def test_dry_run_plans_without_writing(self) -> None:
-        env = make_env()
-        facts = _base_facts(qemu_vms=[_qemu_guest()])
-        result = run_ingest(facts, env, dry_run=True)
-        self.assertEqual(result["object_counts"]["cluster"]["created"], 1)
-        self.assertEqual(result["object_counts"]["vm"]["created"], 1)
-        self.assertEqual(env["cluster_store"], [])
-        self.assertEqual(env["vm_store"], [])
 
 
 if __name__ == "__main__":

@@ -119,7 +119,10 @@ class IngestNodeutilsInventory(Job):
         default=DEFAULT_POLICY_FILE,
         description="Path to nodeutils ingest policy YAML, relative to this repository root when not absolute.",
     )
-    dry_run = BooleanVar(default=True, description="Log planned changes without writing to Nautobot.")
+    dry_run = BooleanVar(
+        default=True,
+        description="Run the normal persistence path without committing target changes to Nautobot.",
+    )
     max_report_age_hours = IntegerVar(default=72, description="Reject reports older than this many hours.")
     max_report_bytes = IntegerVar(default=DEFAULT_MAX_REPORT_BYTES, description="Reject reports larger than this size.")
 
@@ -368,7 +371,6 @@ class IngestNodeutilsInventory(Job):
             role_lookup=lambda name: self.lookup_name_or_slug(Role, name),
             observer_device_id=observer_device_id,
             save_fn=validated_save,
-            dry_run=self.dry_run,
             guest_atomic=transaction.atomic,
             vminterface_manager=VMInterface.objects,
             # VMInterface.status is a required native field with no dedicated proxmox_* mapping

@@ -373,7 +373,6 @@ def sync_guest_interfaces(
     attach_ip: Callable[[Any, Any], None],
     detach_ip: Callable[[Any, Any], None],
     save_fn: Callable[[Any], None],
-    dry_run: bool,
     observed_at_str: str,
     config_complete: bool,
 ) -> InterfaceSyncResult:
@@ -415,8 +414,7 @@ def sync_guest_interfaces(
             cf_set(iface, "proxmox_observed_at", observed_at_str)
             cf_set(iface, "proxmox_presence", PRESENCE_PRESENT)
             cf_set(iface, "proxmox_managed_ip_evidence", {"managed": {}})
-            if not dry_run:
-                save_fn(iface)
+            save_fn(iface)
             counts["vminterface"]["created"] += 1
 
             ip_outcome = sync_interface_ips(
@@ -425,8 +423,7 @@ def sync_guest_interfaces(
                 ip_related_elsewhere=ip_related_elsewhere, attach_ip=attach_ip, detach_ip=detach_ip,
             )
             cf_set(iface, "proxmox_managed_ip_evidence", {"managed": ip_outcome.managed, "evidence_observed_at": observed_at_str})
-            if not dry_run:
-                save_fn(iface)
+            save_fn(iface)
             counts["ip"]["created"] += ip_outcome.created
             counts["ip"]["updated"] += ip_outcome.attached_existing
             counts["ip"]["skipped"] += ip_outcome.detached + len(ip_outcome.conflicts)
@@ -468,8 +465,7 @@ def sync_guest_interfaces(
             changed = True
 
         if changed:
-            if not dry_run:
-                save_fn(existing)
+            save_fn(existing)
             counts["vminterface"]["updated"] += 1
         else:
             counts["vminterface"]["unchanged"] += 1
@@ -502,8 +498,7 @@ def sync_guest_interfaces(
                 counts["ip"]["skipped"] += 1
             cf_set(existing, "proxmox_presence", PRESENCE_ABSENT)
             cf_set(existing, "proxmox_managed_ip_evidence", {"managed": {}, "evidence_observed_at": observed_at_str})
-            if not dry_run:
-                save_fn(existing)
+            save_fn(existing)
             counts["vminterface"]["updated"] += 1
 
     return InterfaceSyncResult(counts=counts, errors=errors, interface_evidence=interface_evidence)
