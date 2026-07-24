@@ -91,6 +91,7 @@ class SeedHomeCluster(Job):
             location_types = self.ensure_location_types(data.get("location_types", []))
             self.ensure_locations(data.get("locations", []), location_types, statuses)
             self.ensure_roles(data.get("roles", []))
+            self.ensure_cluster_types(data.get("cluster_types", []))
             manufacturers = self.ensure_manufacturers(data.get("manufacturers", []))
             self.ensure_device_types(data.get("device_types", []), manufacturers)
             self.ensure_tags(data.get("tags", []))
@@ -231,6 +232,23 @@ class SeedHomeCluster(Job):
                     "description": item.get("description", ""),
                 },
                 {"content_types": item.get("content_types", ["dcim.device"])},
+            )
+            refs[name_value] = obj
+        return refs
+
+    def ensure_cluster_types(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        ClusterType = get_model("virtualization.ClusterType")
+        refs = {}
+        for item in items:
+            name_value = item["name"]
+            obj = self.ensure_object(
+                ClusterType,
+                "cluster type",
+                {"name": name_value},
+                {
+                    "slug": item.get("slug") or slugify(name_value),
+                    "description": item.get("description", ""),
+                },
             )
             refs[name_value] = obj
         return refs

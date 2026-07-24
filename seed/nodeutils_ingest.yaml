@@ -1,6 +1,10 @@
 schema_versions:
   - nodeutils.inventory.v2
 
+proxmox:
+  schema_version: nodeutils.proxmox.v1
+  max_future_skew_seconds: 300
+
 defaults:
   location: Home
   status: Active

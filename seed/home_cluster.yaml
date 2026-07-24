@@ -18,6 +18,17 @@ statuses:
     content_types:
       - "dcim.device"
       - "dcim.location"
+      - "virtualization.virtualmachine"
+  - name: "Offline"
+    slug: "offline"
+    color: "9e9e9e"
+    content_types:
+      - "virtualization.virtualmachine"
+  - name: "Unknown"
+    slug: "unknown"
+    color: "ffc107"
+    content_types:
+      - "virtualization.virtualmachine"
 
 roles:
   - name: "linux-workstation"
@@ -35,6 +46,20 @@ roles:
     color: "607d8b"
     content_types:
       - "dcim.device"
+  - name: "virtual-machine"
+    slug: "virtual-machine"
+    color: "3f51b5"
+    content_types:
+      - "virtualization.virtualmachine"
+  - name: "lxc-container"
+    slug: "lxc-container"
+    color: "009688"
+    content_types:
+      - "virtualization.virtualmachine"
+
+cluster_types:
+  - name: "Proxmox VE"
+    slug: "proxmox-ve"
 
 manufacturers:
   - name: "Apple"
@@ -313,6 +338,159 @@ custom_fields:
     weight: 261
     content_types:
       - "dcim.device"
+
+  # Phase 2 Proxmox actual-ledger fields (devdocs/big/vm/p2/plan.md Section 5.4).
+  - key: "proxmox_observer_device_id"
+    label: "Proxmox Observer Device ID"
+    type: "text"
+    description: "UUID of the observer Device whose nodeutils report matched this Cluster"
+    weight: 300
+    content_types:
+      - "virtualization.cluster"
+  - key: "proxmox_identity_source"
+    label: "Proxmox Identity Source"
+    type: "text"
+    description: "proxmox_cluster_name or standalone_node_fallback"
+    weight: 301
+    content_types:
+      - "virtualization.cluster"
+  - key: "proxmox_scope_key"
+    label: "Proxmox Scope Key"
+    type: "text"
+    description: "Stable Cluster matching key derived from provider name or observer Device UUID"
+    weight: 302
+    content_types:
+      - "virtualization.cluster"
+  - key: "proxmox_observed_at"
+    label: "Proxmox Observed At"
+    type: "text"
+    description: "Evidence time for this object's own identity-level Proxmox observation"
+    weight: 303
+    content_types:
+      - "virtualization.cluster"
+      - "virtualization.virtualmachine"
+      - "virtualization.vminterface"
+  - key: "proxmox_observation_state"
+    label: "Proxmox Observation State"
+    type: "text"
+    description: "complete or partial, final collection+ingest state"
+    weight: 304
+    content_types:
+      - "virtualization.cluster"
+      - "virtualization.virtualmachine"
+  - key: "proxmox_observation_detail"
+    label: "Proxmox Observation Detail"
+    type: "json"
+    description: "Closed bounded per-section state/time/error detail"
+    weight: 305
+    content_types:
+      - "virtualization.cluster"
+      - "virtualization.virtualmachine"
+  - key: "proxmox_observed_node_names"
+    label: "Proxmox Observed Node Names"
+    type: "json"
+    description: "Bounded JSON string list of observed Proxmox node names"
+    weight: 306
+    content_types:
+      - "virtualization.cluster"
+  - key: "proxmox_node_count"
+    label: "Proxmox Node Count"
+    type: "integer"
+    description: "Observed Proxmox node count"
+    weight: 307
+    content_types:
+      - "virtualization.cluster"
+  - key: "proxmox_storage_content"
+    label: "Proxmox Storage Content"
+    type: "json"
+    description: "Closed bounded storage-content evidence keyed by node/storage/content-type"
+    weight: 308
+    content_types:
+      - "virtualization.cluster"
+  - key: "proxmox_guest_type"
+    label: "Proxmox Guest Type"
+    type: "text"
+    description: "qemu or lxc"
+    weight: 320
+    content_types:
+      - "virtualization.virtualmachine"
+  - key: "proxmox_vmid"
+    label: "Proxmox VMID"
+    type: "integer"
+    description: "Positive Proxmox VMID; identity together with Cluster and guest type"
+    weight: 321
+    content_types:
+      - "virtualization.virtualmachine"
+  - key: "proxmox_node"
+    label: "Proxmox Node"
+    type: "text"
+    description: "Owning Proxmox node name"
+    weight: 322
+    content_types:
+      - "virtualization.virtualmachine"
+  - key: "proxmox_status"
+    label: "Proxmox Status"
+    type: "text"
+    description: "Raw Proxmox power status (running/stopped/paused/...)"
+    weight: 323
+    content_types:
+      - "virtualization.virtualmachine"
+  - key: "proxmox_lxc_rootfs"
+    label: "Proxmox LXC Rootfs"
+    type: "json"
+    description: "Parsed LXC rootfs storage/volume/size evidence, or null; invalid for QEMU"
+    weight: 324
+    content_types:
+      - "virtualization.virtualmachine"
+  - key: "proxmox_interface_evidence"
+    label: "Proxmox Interface Evidence"
+    type: "json"
+    description: "Closed bounded config/agent/join/unmatched interface evidence keyed by slot"
+    weight: 325
+    content_types:
+      - "virtualization.virtualmachine"
+  - key: "proxmox_config_slot"
+    label: "Proxmox Config Slot"
+    type: "text"
+    description: "Stable config-side interface slot (e.g. net0)"
+    weight: 340
+    content_types:
+      - "virtualization.vminterface"
+  - key: "proxmox_guest_interface_name"
+    label: "Proxmox Guest Interface Name"
+    type: "text"
+    description: "QEMU guest-agent or LXC config interface name; display only, nullable"
+    weight: 341
+    content_types:
+      - "virtualization.vminterface"
+  - key: "proxmox_bridge"
+    label: "Proxmox Bridge"
+    type: "text"
+    description: "Config-evidence bridge name"
+    weight: 342
+    content_types:
+      - "virtualization.vminterface"
+  - key: "proxmox_interface_source"
+    label: "Proxmox Interface Source"
+    type: "text"
+    description: "qemu_config_agent_join or lxc_config"
+    weight: 343
+    content_types:
+      - "virtualization.vminterface"
+  - key: "proxmox_presence"
+    label: "Proxmox Presence"
+    type: "text"
+    description: "present or absent, from complete config enumeration only"
+    weight: 344
+    content_types:
+      - "virtualization.vminterface"
+  - key: "proxmox_managed_ip_evidence"
+    label: "Proxmox Managed IP Evidence"
+    type: "json"
+    description: "Closed JSON set of ingestor-managed IP relation IDs/address keys and evidence time"
+    weight: 345
+    content_types:
+      - "virtualization.vminterface"
 
 intent_sources:
   - slug: infrastructure
