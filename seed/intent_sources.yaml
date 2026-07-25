@@ -1,245 +1,195 @@
-intent_sources: []
+intent_sources:
+  - slug: infrastructure
+    name: Infrastructure
+    source_type: manual
+    enabled: true
+
+  - slug: manual
+    name: Manual
+    source_type: manual
+    enabled: true
 
 desired_nodes:
-  - name: agmbp2019
-    slug: agmbp2019
-    node_type: device
-    accepted_actual_types:
-      - device
-    lifecycle: active
-
-  - name: agmbp2018
-    slug: agmbp2018
-    node_type: device
-    accepted_actual_types:
-      - device
-    lifecycle: active
-
-  - name: agpc
-    slug: agpc
-    node_type: device
-    accepted_actual_types:
-      - device
-    lifecycle: active
-
-  - name: agstudio
-    slug: agstudio
-    node_type: device
-    accepted_actual_types:
-      - device
-    lifecycle: active
-
   - name: agbach
     slug: agbach
     node_type: device
     accepted_actual_types:
       - device
+    lifecycle: approved
+
+  - name: agdnsmasq
+    slug: agdnsmasq
+    node_type: service_host
+    accepted_actual_types:
+      - device
+      - virtual_machine
     lifecycle: active
 
-  - name: agprometheus
-    slug: agprometheus
+  - name: aghub
+    slug: aghub
     node_type: device
     accepted_actual_types:
       - device
+    lifecycle: approved
+
+  - name: agpc
+    slug: agpc
+    node_type: device
+    accepted_actual_types: []
     lifecycle: active
 
-  - name: aggrafana
-    slug: aggrafana
+  - name: agstudio
+    slug: agstudio
     node_type: device
-    accepted_actual_types:
-      - device
-    lifecycle: active
-
-  - name: agnomad
-    slug: agnomad
-    node_type: device
-    accepted_actual_types:
-      - device
-    lifecycle: active
-
-  - name: aghaos
-    slug: aghaos
-    node_type: device
-    accepted_actual_types:
-      - device
+    accepted_actual_types: []
     lifecycle: active
 
 desired_endpoints:
   - name: primary
-    desired_node: agmbp2019
+    desired_node: agbach
     endpoint_type: primary
-    ip_policy: external
-    mdns_name: agmbp2019.local
+    ip_policy: dhcp_reserved
+    ip_address: 192.168.0.120
+    dns_name: agbach.home.arpa
+    mdns_name: agbach.local
+    generate_dnsmasq: true
+    dnsmasq_record_type: host_record
 
   - name: primary
-    desired_node: agmbp2018
+    desired_node: agdnsmasq
     endpoint_type: primary
-    ip_policy: external
-    mdns_name: agmbp2018.local
+    ip_policy: static
+    ip_address: 192.168.0.2
+    dns_name: agdnsmasq.home.arpa
+    mdns_name: agdnsmasq.local
+    generate_dnsmasq: true
+    dnsmasq_record_type: host_record
+
+  - name: primary
+    desired_node: aghub
+    endpoint_type: primary
+    ip_policy: dhcp_reserved
+    ip_address: 192.168.0.10
+    dns_name: aghub.home.arpa
+    mdns_name: aghub.local
+    generate_dnsmasq: true
+    dnsmasq_record_type: host_record
 
   - name: primary
     desired_node: agpc
     endpoint_type: primary
-    ip_policy: external
+    ip_policy: dhcp_reserved
+    ip_address: 192.168.0.110
+    dns_name: agpc.home.arpa
     mdns_name: agpc.local
+    generate_dnsmasq: true
+    dnsmasq_record_type: host_record
 
   - name: primary
     desired_node: agstudio
     endpoint_type: primary
-    ip_policy: external
+    ip_policy: dhcp_reserved
+    ip_address: 192.168.0.100
+    dns_name: agstudio.home.arpa
     mdns_name: agstudio.local
+    generate_dnsmasq: true
+    dnsmasq_record_type: host_record
 
-  - name: primary
-    desired_node: agbach
-    endpoint_type: primary
-    ip_policy: external
-    mdns_name: agbach.local
+desired_ip_ranges:
+  - name: dhcp-reserved
+    slug: dhcp-reserved
+    start_address: 192.168.0.10
+    end_address: 192.168.0.199
+    range_policy: dhcp_reservable_pool
+    lifecycle: planned
+    generate_dnsmasq: true
+    dnsmasq_options: {}
 
-  - name: primary
-    desired_node: agprometheus
-    endpoint_type: primary
-    ip_policy: external
-    mdns_name: agprometheus.local
+  - name: network-infra
+    slug: network-infra
+    start_address: 192.168.0.2
+    end_address: 192.168.0.9
+    range_policy: static_pool
+    lifecycle: planned
+    generate_dnsmasq: false
+    dnsmasq_options: {}
 
-  - name: primary
-    desired_node: aggrafana
-    endpoint_type: primary
-    ip_policy: external
-    mdns_name: aggrafana.local
+  - name: dhcp-unreserved
+    slug: dhcp-unreserved
+    start_address: 192.168.0.200
+    end_address: 192.168.0.250
+    range_policy: dhcp_dynamic_pool
+    lifecycle: planned
+    generate_dnsmasq: true
+    dnsmasq_options: {}
 
-  - name: primary
-    desired_node: agnomad
-    endpoint_type: primary
-    ip_policy: external
-    mdns_name: agnomad.local
+desired_compute_platforms: []
 
-  - name: primary
-    desired_node: aghaos
-    endpoint_type: primary
-    ip_policy: static
-    ip_address: 192.168.0.20
+desired_compute_instances: []
+
+desired_services:
+  - intent_source: infrastructure
+    catalog_namespace: default
+    catalog_metadata_name: prometheus
+    service_type: service
+    name: prometheus
+    display_name: Prometheus
+    lifecycle: active
+
+  - intent_source: infrastructure
+    catalog_namespace: default
+    catalog_metadata_name: grafana
+    service_type: service
+    name: grafana
+    display_name: Grafana
+    lifecycle: active
+
+  - intent_source: infrastructure
+    catalog_namespace: default
+    catalog_metadata_name: nomad
+    service_type: service
+    name: nomad
+    display_name: Nomad
+    lifecycle: active
+
+  - intent_source: infrastructure
+    catalog_namespace: default
+    catalog_metadata_name: prometheus-node-exporter
+    service_type: service
+    name: prometheus-node-exporter
+    display_name: Prometheus Node Exporter
+    lifecycle: active
+
+  - intent_source: infrastructure
+    catalog_namespace: default
+    catalog_metadata_name: haos
+    service_type: service
+    name: haos
+    display_name: Home Assistant OS
+    lifecycle: active
+
+  - intent_source: manual
+    catalog_namespace: default
+    catalog_metadata_name: dnsmasq
+    service_type: service
+    name: dnsmasq
+    display_name: dnsmasq
+    lifecycle: active
 
 desired_service_placements:
   - desired_service:
-      intent_source: infrastructure
+      intent_source: manual
       catalog_namespace: default
-      catalog_metadata_name: prometheus
+      catalog_metadata_name: dnsmasq
       service_type: service
-    instance_name: primary
-    desired_node: agprometheus
-    desired_endpoint:
-      name: primary
-      endpoint_type: primary
+    instance_name: dnsmasq
+    desired_node: agdnsmasq
     desired_state: active
-    instance_role: primary
-    deployment_profile: prometheus
+    deployment_profile: dnsmasq
     config_schema_version: "1"
-    assignment_source: yaml
-    config: {}
+    assignment_source: manual
+    config:
+      listen_addresses:
+        - 192.168.0.2
 
-  - desired_service:
-      intent_source: infrastructure
-      catalog_namespace: default
-      catalog_metadata_name: grafana
-      service_type: service
-    instance_name: primary
-    desired_node: aggrafana
-    desired_endpoint:
-      name: primary
-      endpoint_type: primary
-    desired_state: active
-    instance_role: primary
-    deployment_profile: grafana
-    config_schema_version: "1"
-    assignment_source: yaml
-    config: {}
-
-  - desired_service:
-      intent_source: infrastructure
-      catalog_namespace: default
-      catalog_metadata_name: nomad
-      service_type: service
-    instance_name: server
-    desired_node: agnomad
-    desired_endpoint:
-      name: primary
-      endpoint_type: primary
-    desired_state: active
-    instance_role: primary
-    deployment_profile: nomad_server
-    config_schema_version: "1"
-    assignment_source: yaml
-    config: {}
-
-  - desired_service:
-      intent_source: infrastructure
-      catalog_namespace: default
-      catalog_metadata_name: nomad
-      service_type: service
-    instance_name: client-agstudio
-    desired_node: agstudio
-    desired_endpoint:
-      name: primary
-      endpoint_type: primary
-    desired_state: active
-    instance_role: worker
-    deployment_profile: nomad_client
-    config_schema_version: "1"
-    assignment_source: yaml
-    config: {}
-
-  - desired_service:
-      intent_source: infrastructure
-      catalog_namespace: default
-      catalog_metadata_name: prometheus-node-exporter
-      service_type: service
-    instance_name: agpc
-    desired_node: agpc
-    desired_endpoint:
-      name: primary
-      endpoint_type: primary
-    desired_state: active
-    deployment_profile: prometheus_node_exporter
-    config_schema_version: "1"
-    assignment_source: yaml
-    config: {}
-
-  - desired_service:
-      intent_source: infrastructure
-      catalog_namespace: default
-      catalog_metadata_name: haos
-      service_type: service
-    instance_name: primary
-    desired_node: aghaos
-    desired_endpoint:
-      name: primary
-      endpoint_type: primary
-    desired_state: active
-    instance_role: primary
-    deployment_profile: home_assistant
-    config_schema_version: "1"
-    assignment_source: yaml
-    config: {}
-
-desired_node_operational_overrides:
-  - desired_node: agmbp2019
-    power_control: wol
-    is_laptop: true
-
-  - desired_node: agmbp2018
-    power_control: wol
-    is_laptop: true
-
-  - desired_node: agpc
-    power_control: wol
-
-  - desired_node: agstudio
-    power_control: macos_sleep
-
-  - desired_node: agbach
-    power_control: macos_sleep
-    is_laptop: true
-
-  - desired_node: aghaos
-    declared_host_os: haos
-    ansible_port: 2222
+desired_node_operational_overrides: []
