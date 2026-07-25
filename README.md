@@ -14,13 +14,11 @@ This repository is structured so it can be used as a Nautobot Git Repository tha
 ├── jobs
 │   ├── __init__.py
 │   ├── ai_resource_review.py
-│   ├── generate_desired_services.py
 │   ├── ingest_nodeutils_inventory.py
 │   └── seed_home_cluster.py
 └── seed
     ├── intent_sources.yaml
     ├── nodeutils_ingest.yaml
-    ├── service_repositories.yaml
     └── home_cluster.yaml
 ```
 
@@ -34,11 +32,10 @@ Nautobot Git Repository Jobs requirements:
 - [jobs/__init__.py](jobs/__init__.py) imports the Job class and explicitly registers it with `register_jobs()`
 - The seed data used by the Job is stored at `seed/home_cluster.yaml`, relative to the repository root
 
-In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point.
+In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point. `Seed Home Cluster` seeds native Nautobot prerequisites only (Location/Role/Status/Device Type/Tag/Custom Field data below); it does not import or write any nintent `IntentSource` or `DesiredService` row.
 [jobs/ingest_nodeutils_inventory.py](jobs/ingest_nodeutils_inventory.py) reads a batch of `nodeutils collect` reports from API input, validates them, applies [seed/nodeutils_ingest.yaml](seed/nodeutils_ingest.yaml), and creates or updates Devices with Nautobot-side credentials only.
 [jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device inventory updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
-[jobs/generate_desired_services.py](jobs/generate_desired_services.py) reads [seed/service_repositories.yaml](seed/service_repositories.yaml), fetches selected repository files without a full clone, and can write `seed/desired_services.generated.yaml`.
-[seed/intent_sources.yaml](seed/intent_sources.yaml) is the nintent input for name-reserved DesiredNodes and primary mDNS endpoints. It is used before nodeutils collection to generate the minimal Ansible bootstrap inventory.
+[seed/intent_sources.yaml](seed/intent_sources.yaml) is the **one checked-in source-controlled bulk desired-state document** nintent's `Import Intent Sources` Job reads — see `nintent/README.md` for the full strict nine-root contract. Source-derived service/dependency discovery is owned entirely by nintent's `Analyze Intent Sources` Job now; this repository has no candidate-generation Job or output file.
 
 Nautobot-side workflow:
 
@@ -107,15 +104,11 @@ Observed service fields on a Device are host-local facts, not the cluster-wide d
 
 Cluster-level desired services and their placements are persisted in nintent (`DesiredService` and `DesiredServicePlacement`). They answer "what should run where?" rather than "what does this Device currently provide?" Service-placement drift is computed only by `nctl drift`; nauto persists observations but does not maintain a second drift engine.
 
-Repository-driven service discovery starts from [seed/service_repositories.yaml](seed/service_repositories.yaml). Only `url` is required:
-
-```yaml
-service_repositories:
-  - url: "https://github.com/example/hatchet-stack"
-  - url: "https://github.com/example/ollama-service"
-```
-
-The `Generate Desired Services` Job resolves default branches where possible, fetches only `catalog-info.yaml` and a short list of basic files such as `README.md`, and marks repositories without catalog metadata as `insufficient` for later review. Run it with `dry_run=true` first. With `dry_run=false`, it writes `seed/desired_services.generated.yaml` as a candidate proposal for operator review; it does not become authoritative until reviewed and persisted into nintent.
+Repository-driven service discovery (catalog-info.yaml fetching, dependency extraction) is
+nintent's `Analyze Intent Sources` Job, run against `IntentSource` rows imported from
+`seed/intent_sources.yaml`. It defaults to a zero-write preview (`apply=false`) and requires
+`apply=true` to persist `DesiredService`/`DesiredDependency` rows. This repository no longer has
+its own candidate-generation Job, input file, or generated-output file.
 
 ## Configuration
 

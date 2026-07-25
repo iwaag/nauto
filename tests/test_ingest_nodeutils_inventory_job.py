@@ -7,9 +7,9 @@ omitted `result["proxmox"]` entirely -- the Step 9 blocker recorded in `p2/probl
 Section 4.1); Step 2 removed that early return, so the preview case below is now green.
 
 Loads the real `jobs/ingest_nodeutils_inventory.py` module by file path (the nauto
-pattern for Django-free unit tests, per `test_nodeutils_ingest_batch.py` and
-`test_generate_desired_services.py`), stubbing only the Nautobot/Django symbols the
-module imports at module level. `ingest_proxmox()` itself is replaced with a sentinel
+pattern for Django-free unit tests, per `test_nodeutils_ingest_batch.py`), stubbing
+only the Nautobot/Django symbols the module imports at module level.
+`ingest_proxmox()` itself is replaced with a sentinel
 so this test exercises only the orchestration decision in `ingest_report()`, not the
 real ORM persistence core, which has its own coverage in
 `test_proxmox_cluster_vm_upsert.py` / `test_proxmox_interface_ip_upsert.py`.
