@@ -16,6 +16,8 @@ desired_nodes:
     accepted_actual_types:
       - device
     lifecycle: approved
+    description: "main macbook"
+    notes: ""
 
   - name: agdnsmasq
     slug: agdnsmasq
@@ -24,6 +26,8 @@ desired_nodes:
       - device
       - virtual_machine
     lifecycle: active
+    description: "dnsmasq should be running on VE or light PC"
+    notes: ""
 
   - name: aghub
     slug: aghub
@@ -31,18 +35,24 @@ desired_nodes:
     accepted_actual_types:
       - device
     lifecycle: approved
+    description: "proxmox VE mini pc"
+    notes: ""
 
   - name: agpc
     slug: agpc
     node_type: device
     accepted_actual_types: []
     lifecycle: active
+    description: "powerful ubuntu with graphic card"
+    notes: ""
 
   - name: agstudio
     slug: agstudio
     node_type: device
     accepted_actual_types: []
     lifecycle: active
+    description: "powerful mac studio"
+    notes: ""
 
 desired_endpoints:
   - name: primary
@@ -64,6 +74,7 @@ desired_endpoints:
     mdns_name: agdnsmasq.local
     generate_dnsmasq: true
     dnsmasq_record_type: host_record
+    description: ""
 
   - name: primary
     desired_node: aghub
@@ -84,6 +95,7 @@ desired_endpoints:
     mdns_name: agpc.local
     generate_dnsmasq: true
     dnsmasq_record_type: host_record
+    description: ""
 
   - name: primary
     desired_node: agstudio
@@ -94,6 +106,7 @@ desired_endpoints:
     mdns_name: agstudio.local
     generate_dnsmasq: true
     dnsmasq_record_type: host_record
+    description: ""
 
 desired_ip_ranges:
   - name: dhcp-reserved
@@ -104,6 +117,7 @@ desired_ip_ranges:
     lifecycle: planned
     generate_dnsmasq: true
     dnsmasq_options: {}
+    description: ""
 
   - name: network-infra
     slug: network-infra
@@ -113,6 +127,7 @@ desired_ip_ranges:
     lifecycle: planned
     generate_dnsmasq: false
     dnsmasq_options: {}
+    description: ""
 
   - name: dhcp-unreserved
     slug: dhcp-unreserved
@@ -122,6 +137,7 @@ desired_ip_ranges:
     lifecycle: planned
     generate_dnsmasq: true
     dnsmasq_options: {}
+    description: ""
 
 desired_compute_platforms: []
 
