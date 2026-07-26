@@ -743,7 +743,11 @@ class IngestNodeutilsInventory(Job):
     def diff_device(self, device: Any, payload: dict[str, Any]) -> list[str]:
         changed = []
         for key in ("name", "location", "status", "role", "device_type", "serial", "description", "comments"):
-            if key in payload and getattr(device, key, None) != payload[key]:
+            # `description` is retained in the portable report payload, but
+            # Nautobot 3's Device model has no such native field. It is
+            # therefore omitted by create/update and must not make an
+            # identical report appear to mutate on every repeat.
+            if key in payload and has_field(type(device), key) and getattr(device, key, None) != payload[key]:
                 changed.append(key)
         current_cf = custom_field_data(device)
         for key, value in payload.get("custom_fields", {}).items():
