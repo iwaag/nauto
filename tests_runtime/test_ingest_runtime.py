@@ -12,7 +12,7 @@ from django.test import TestCase
 from jobs.ingest_nodeutils_inventory import IngestNodeutilsInventory
 from jobs.seed_home_cluster import SeedHomeCluster
 from nautobot.dcim.models import Device
-from nautobot.virtualization.models import Cluster
+from nautobot.virtualization.models import Cluster, VirtualMachine
 
 
 class NautoIngestRuntimeTests(TestCase):
@@ -81,6 +81,27 @@ class NautoIngestRuntimeTests(TestCase):
             "storage_content": [],
         }
 
+    def _lxc_guest(self, *, vmid: int, name: str) -> dict:
+        return {
+            "guest_type": "lxc",
+            "vmid": vmid,
+            "node": "p3-runtime-node",
+            "name": name,
+            "proxmox_status": "running",
+            "status": "Active",
+            "vcpus": 1,
+            "memory_mb": 512,
+            "disk_gb": 8,
+            "observation": {"state": "complete"},
+            "interfaces": {
+                "config_interfaces": [],
+                "agent_interfaces": [],
+                "joined_interfaces": [],
+                "unmatched": [],
+            },
+            "rootfs": {"storage": "local-lvm", "volume": f"vm-{vmid}-disk-0", "size_gb": 8},
+        }
+
     def test_valid_stale_and_repeat_reports_use_real_orm_transactionally(self) -> None:
         report = self._report()
         valid = self._run(report)
@@ -121,3 +142,40 @@ class NautoIngestRuntimeTests(TestCase):
         rejected = self._run(invalid)
         self.assertEqual(rejected["results"][0]["proxmox"]["guest_errors"][0]["code"], "unsupported_schema_version")
         self.assertEqual(Cluster.objects.filter(name="p3-runtime-proxmox").count(), 1)
+
+    def test_malformed_guest_isolated_while_valid_sibling_persists(self) -> None:
+        self._run(self._report())
+        report = self._report()
+        facts = self._proxmox_facts()
+        facts["lxc_containers"] = [
+            self._lxc_guest(vmid=301, name="p3-valid-guest"),
+            self._lxc_guest(vmid=-1, name="p3-invalid-guest"),
+        ]
+        report["facts"]["proxmox"] = facts
+
+        result = self._run(report)["results"][0]["proxmox"]
+        self.assertEqual(result["observation_state"], "partial")
+        self.assertEqual(result["object_counts"]["vm"]["created"], 1)
+        self.assertIn(
+            {"scope_kind": "guest", "scope_id": "lxc:p3-runtime-node:-1", "section": "identity", "code": "invalid_vmid"},
+            result["guest_errors"],
+        )
+        self.assertTrue(VirtualMachine.objects.filter(name="p3-valid-guest").exists())
+        self.assertFalse(VirtualMachine.objects.filter(name="p3-invalid-guest").exists())
+
+    def test_real_constraint_failure_rolls_back_only_its_guest_savepoint(self) -> None:
+        self._run(self._report())
+        report = self._report()
+        facts = self._proxmox_facts()
+        facts["lxc_containers"] = [
+            self._lxc_guest(vmid=401, name="p3-savepoint-valid"),
+            self._lxc_guest(vmid=402, name="x" * 300),
+        ]
+        report["facts"]["proxmox"] = facts
+
+        result = self._run(report)["results"][0]["proxmox"]
+        self.assertEqual(result["observation_state"], "partial")
+        self.assertEqual(result["object_counts"]["vm"]["created"], 1)
+        self.assertIn("guest_upsert_failed", {error["code"] for error in result["guest_errors"]})
+        self.assertTrue(VirtualMachine.objects.filter(name="p3-savepoint-valid").exists())
+        self.assertFalse(VirtualMachine.objects.filter(name="x" * 300).exists())
