@@ -1,5 +1,9 @@
 # Developer Notes
 
+The repository [test strategy command matrix](../README_DEV.md#test-strategy-command-matrix) is the
+authoritative source for the ordinary suite, exact-local-source Nautobot runtime gate, prerequisites,
+and cleanup ownership.
+
 ## Nautobot Custom Field Updates in Jobs
 
 When updating Device custom fields from an in-process Nautobot Job, do not treat the model object like the REST API payload.
