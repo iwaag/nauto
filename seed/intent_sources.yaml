@@ -74,6 +74,7 @@ desired_endpoints:
     mdns_name: agdnsmasq.local
     generate_dnsmasq: true
     dnsmasq_record_type: host_record
+    mac_address: bc:24:11:23:dc:b7
     description: ""
 
   - name: primary
@@ -139,9 +140,33 @@ desired_ip_ranges:
     dnsmasq_options: {}
     description: ""
 
-desired_compute_platforms: []
+desired_compute_platforms:
+  - name: aghub-pve
+    slug: aghub-pve
+    control_node: aghub
+    provider_type: proxmox
+    lifecycle: active
+    config_schema_version: v1
+    config:
+      cluster_name: aghub-proxmox
+      default_storage: local-lvm
+      default_bridge: vmbr0
 
-desired_compute_instances: []
+desired_compute_instances:
+  - desired_node: agdnsmasq
+    platform: aghub-pve
+    instance_kind: container
+    desired_power_state: running
+    vcpus: 1
+    memory_mb: 512
+    root_disk_gb: 8
+    config_schema_version: v1
+    config:
+      vmid: 108
+      template: local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst
+      storage: local-lvm
+      bridge: vmbr0
+      unprivileged: true
 
 desired_services:
   - intent_source: infrastructure
