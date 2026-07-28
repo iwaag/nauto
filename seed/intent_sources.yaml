@@ -38,6 +38,15 @@ desired_nodes:
     description: "proxmox VE mini pc"
     notes: ""
 
+  - name: agfixture
+    slug: agfixture
+    node_type: service_host
+    accepted_actual_types:
+      - virtual_machine
+    lifecycle: approved
+    description: "Confirmed retained Phase 3 LXC fixture; initial access is manual console bootstrap."
+    notes: ""
+
   - name: agpc
     slug: agpc
     node_type: device
@@ -75,6 +84,18 @@ desired_endpoints:
     generate_dnsmasq: true
     dnsmasq_record_type: host_record
     mac_address: bc:24:11:23:dc:b7
+    description: ""
+
+  - name: primary
+    desired_node: agfixture
+    endpoint_type: primary
+    ip_policy: static
+    ip_address: 192.168.0.9
+    dns_name: agfixture.home.arpa
+    mdns_name: agfixture.local
+    generate_dnsmasq: false
+    dnsmasq_record_type: host_record
+    mac_address: bc:24:11:00:01:09
     description: ""
 
   - name: primary
@@ -164,6 +185,21 @@ desired_compute_instances:
     config:
       vmid: 108
       template: local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst
+      storage: local-lvm
+      bridge: vmbr0
+      unprivileged: true
+
+  - desired_node: agfixture
+    platform: aghub-pve
+    instance_kind: container
+    desired_power_state: running
+    vcpus: 1
+    memory_mb: 512
+    root_disk_gb: 8
+    config_schema_version: v1
+    config:
+      vmid: 109
+      template: local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst
       storage: local-lvm
       bridge: vmbr0
       unprivileged: true
