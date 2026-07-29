@@ -17,7 +17,6 @@ This repository is structured so it can be used as a Nautobot Git Repository tha
 │   ├── ingest_nodeutils_inventory.py
 │   └── seed_home_cluster.py
 └── seed
-    ├── intent_sources.yaml
     ├── nodeutils_ingest.yaml
     └── home_cluster.yaml
 ```
@@ -35,7 +34,9 @@ Nautobot Git Repository Jobs requirements:
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point. `Seed Home Cluster` seeds native Nautobot prerequisites only (Location/Role/Status/Device Type/Tag/Custom Field data below); it does not import or write any nintent `IntentSource` or `DesiredService` row.
 [jobs/ingest_nodeutils_inventory.py](jobs/ingest_nodeutils_inventory.py) reads a batch of `nodeutils collect` reports from API input, validates them, applies [seed/nodeutils_ingest.yaml](seed/nodeutils_ingest.yaml), and creates or updates Devices with Nautobot-side credentials only.
 [jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device inventory updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
-[seed/intent_sources.yaml](seed/intent_sources.yaml) is the **one checked-in source-controlled bulk desired-state document** nintent's `Import Intent Sources` Job reads — see `nintent/README.md` for the full strict nine-root contract. Source-derived service/dependency discovery is owned entirely by nintent's `Analyze Intent Sources` Job now; this repository has no candidate-generation Job or output file.
+`seed/intent_sources.yaml` is retained only until Phase 4 removes private desired state from Git.
+It is no longer read by Nautobot. Source-derived service/dependency discovery is owned entirely by
+nintent's `Analyze Intent Sources` Job; this repository has no candidate-generation Job or output file.
 
 Nautobot-side workflow:
 
