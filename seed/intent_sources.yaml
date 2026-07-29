@@ -1,13 +1,7 @@
 intent_sources:
   - slug: infrastructure
-    name: Infrastructure
-    source_type: manual
-    enabled: true
 
   - slug: manual
-    name: Manual
-    source_type: manual
-    enabled: true
 
 desired_nodes:
   - name: agbach
@@ -16,8 +10,6 @@ desired_nodes:
     accepted_actual_types:
       - device
     lifecycle: approved
-    description: "main macbook"
-    notes: ""
 
   - name: agdnsmasq
     slug: agdnsmasq
@@ -26,8 +18,6 @@ desired_nodes:
       - device
       - virtual_machine
     lifecycle: active
-    description: "dnsmasq should be running on VE or light PC"
-    notes: ""
 
   - name: aghub
     slug: aghub
@@ -35,8 +25,6 @@ desired_nodes:
     accepted_actual_types:
       - device
     lifecycle: approved
-    description: "proxmox VE mini pc"
-    notes: ""
 
   - name: agfixture
     slug: agfixture
@@ -44,24 +32,18 @@ desired_nodes:
     accepted_actual_types:
       - device
     lifecycle: approved
-    description: "Confirmed retained Phase 3 LXC fixture; initial access is manual console bootstrap."
-    notes: ""
 
   - name: agpc
     slug: agpc
     node_type: device
     accepted_actual_types: []
     lifecycle: active
-    description: "powerful ubuntu with graphic card"
-    notes: ""
 
   - name: agstudio
     slug: agstudio
     node_type: device
     accepted_actual_types: []
     lifecycle: active
-    description: "powerful mac studio"
-    notes: ""
 
 desired_endpoints:
   - name: primary
@@ -84,7 +66,6 @@ desired_endpoints:
     generate_dnsmasq: true
     dnsmasq_record_type: host_record
     mac_address: bc:24:11:23:dc:b7
-    description: ""
 
   - name: primary
     desired_node: agfixture
@@ -97,7 +78,6 @@ desired_endpoints:
     generate_dnsmasq: false
     dnsmasq_record_type: host_record
     mac_address: bc:24:11:00:01:09
-    description: ""
 
   - name: primary
     desired_node: aghub
@@ -118,7 +98,6 @@ desired_endpoints:
     mdns_name: agpc.local
     generate_dnsmasq: true
     dnsmasq_record_type: host_record
-    description: ""
 
   - name: primary
     desired_node: agstudio
@@ -129,7 +108,6 @@ desired_endpoints:
     mdns_name: agstudio.local
     generate_dnsmasq: true
     dnsmasq_record_type: host_record
-    description: ""
 
 desired_ip_ranges:
   - name: dhcp-reserved
@@ -140,7 +118,6 @@ desired_ip_ranges:
     lifecycle: planned
     generate_dnsmasq: true
     dnsmasq_options: {}
-    description: ""
 
   - name: network-infra
     slug: network-infra
@@ -150,7 +127,6 @@ desired_ip_ranges:
     lifecycle: planned
     generate_dnsmasq: false
     dnsmasq_options: {}
-    description: ""
 
   - name: dhcp-unreserved
     slug: dhcp-unreserved
@@ -160,15 +136,12 @@ desired_ip_ranges:
     lifecycle: planned
     generate_dnsmasq: true
     dnsmasq_options: {}
-    description: ""
 
 desired_compute_platforms:
   - name: aghub-pve
     slug: aghub-pve
     control_node: aghub
-    provider_type: proxmox
     lifecycle: active
-    config_schema_version: v1
     config:
       cluster_name: aghub-proxmox
       default_storage: local-lvm
@@ -182,7 +155,6 @@ desired_compute_instances:
     vcpus: 1
     memory_mb: 512
     root_disk_gb: 8
-    config_schema_version: v1
     config:
       vmid: 108
       template: local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst
@@ -197,7 +169,6 @@ desired_compute_instances:
     vcpus: 1
     memory_mb: 512
     root_disk_gb: 8
-    config_schema_version: v1
     config:
       vmid: 109
       template: local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst
@@ -211,7 +182,6 @@ desired_services:
     catalog_metadata_name: prometheus
     service_type: service
     name: prometheus
-    display_name: Prometheus
     lifecycle: active
 
   - intent_source: infrastructure
@@ -219,7 +189,6 @@ desired_services:
     catalog_metadata_name: grafana
     service_type: service
     name: grafana
-    display_name: Grafana
     lifecycle: active
 
   - intent_source: infrastructure
@@ -227,7 +196,6 @@ desired_services:
     catalog_metadata_name: nomad
     service_type: service
     name: nomad
-    display_name: Nomad
     lifecycle: active
 
   - intent_source: infrastructure
@@ -235,7 +203,6 @@ desired_services:
     catalog_metadata_name: prometheus-node-exporter
     service_type: service
     name: prometheus-node-exporter
-    display_name: Prometheus Node Exporter
     lifecycle: active
 
   - intent_source: infrastructure
@@ -243,7 +210,6 @@ desired_services:
     catalog_metadata_name: haos
     service_type: service
     name: haos
-    display_name: Home Assistant OS
     lifecycle: active
 
   - intent_source: manual
@@ -251,7 +217,6 @@ desired_services:
     catalog_metadata_name: dnsmasq
     service_type: service
     name: dnsmasq
-    display_name: dnsmasq
     lifecycle: active
 
 desired_service_placements:
@@ -265,7 +230,6 @@ desired_service_placements:
     desired_state: active
     deployment_profile: dnsmasq
     config_schema_version: "1"
-    assignment_source: manual
     config:
       listen_addresses:
         - 192.168.0.2
