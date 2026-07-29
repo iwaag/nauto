@@ -90,7 +90,8 @@ desired_endpoints:
     desired_node: agfixture
     endpoint_type: primary
     ip_policy: static
-    ip_address: 192.168.0.9
+    ip_address: 192.168.0.9/24
+    gateway_address: 192.168.0.1
     dns_name: agfixture.home.arpa
     mdns_name: agfixture.local
     generate_dnsmasq: false
