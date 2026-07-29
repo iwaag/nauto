@@ -42,7 +42,7 @@ desired_nodes:
     slug: agfixture
     node_type: service_host
     accepted_actual_types:
-      - virtual_machine
+      - device
     lifecycle: approved
     description: "Confirmed retained Phase 3 LXC fixture; initial access is manual console bootstrap."
     notes: ""
