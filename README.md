@@ -34,9 +34,9 @@ Nautobot Git Repository Jobs requirements:
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point. `Seed Home Cluster` seeds native Nautobot prerequisites only (Location/Role/Status/Device Type/Tag/Custom Field data below); it does not import or write any nintent `IntentSource` or `DesiredService` row.
 [jobs/ingest_nodeutils_inventory.py](jobs/ingest_nodeutils_inventory.py) reads a batch of `nodeutils collect` reports from API input, validates them, applies [seed/nodeutils_ingest.yaml](seed/nodeutils_ingest.yaml), and creates or updates Devices with Nautobot-side credentials only.
 [jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device inventory updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
-`seed/intent_sources.yaml` is retained only until Phase 4 removes private desired state from Git.
-It is no longer read by Nautobot. Source-derived service/dependency discovery is owned entirely by
-nintent's `Analyze Intent Sources` Job; this repository has no candidate-generation Job or output file.
+Desired state is held in the Nautobot database. Submit desired-state changes through the authenticated
+batch endpoint (normally with `nctl desired apply`); this repository contains only reusable prerequisites
+and ingest policy.
 
 Nautobot-side workflow:
 
@@ -105,11 +105,9 @@ Observed service fields on a Device are host-local facts, not the cluster-wide d
 
 Cluster-level desired services and their placements are persisted in nintent (`DesiredService` and `DesiredServicePlacement`). They answer "what should run where?" rather than "what does this Device currently provide?" Service-placement drift is computed only by `nctl drift`; nauto persists observations but does not maintain a second drift engine.
 
-Repository-driven service discovery (catalog-info.yaml fetching, dependency extraction) is
-nintent's `Analyze Intent Sources` Job, run against `IntentSource` rows imported from
-`seed/intent_sources.yaml`. It defaults to a zero-write preview (`apply=false`) and requires
-`apply=true` to persist `DesiredService`/`DesiredDependency` rows. This repository no longer has
-its own candidate-generation Job, input file, or generated-output file.
+Source-derived service/dependency discovery is owned by nintent's `Analyze Intent Sources` Job,
+which reads the current `IntentSource` rows from Nautobot. This repository has no desired-state
+input, candidate-generation Job, or generated-output file.
 
 ## Configuration
 
@@ -129,18 +127,13 @@ This policy controls supported report schema versions, default Nautobot objects,
 whether reports may create or update Devices, system-to-role/device-type maps,
 and which `self_reported` fields may be copied into custom fields.
 
-To adjust name-reserved bootstrap hosts:
-
-```bash
-editor seed/intent_sources.yaml
-```
-
-This file declares desired nodes, endpoints, services, service placements, and
-optional node operational overrides. Ordinary observed Linux/macOS hosts do not
-need an override row: nctl derives policy and OS from fresh nodeutils facts and
-selects a unique usable local endpoint (or unique primary). Keep override rows
-only for genuine exceptions such as declared HAOS, non-default power/laptop
-behavior, a non-default Ansible port, or a forced endpoint/path.
+To change desired nodes, endpoints, services, placements, or operational
+overrides, use the batch endpoint through `nctl desired apply`; see the root
+README for the private-file workflow. Ordinary observed Linux/macOS hosts do
+not need an override row: nctl derives policy and OS from fresh nodeutils facts
+and selects a unique usable local endpoint (or unique primary). Keep override
+rows only for genuine exceptions such as declared HAOS, non-default
+power/laptop behavior, a non-default Ansible port, or a forced endpoint/path.
 
 Bootstrap inventory generation uses only the eligible desired nodes and their
 mDNS endpoints. Production service groups come exclusively from active
