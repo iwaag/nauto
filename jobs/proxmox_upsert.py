@@ -488,8 +488,10 @@ def ingest_proxmox_platform(
     platform_partial = validation.state == "partial"
 
     interfaces_enabled = vminterface_manager is not None and make_interface is not None
-    if interfaces_enabled:
-        proxmox_interfaces = _load_proxmox_interfaces()
+    # Guest and interface convergence share one presence vocabulary. Load the pure interface
+    # module even when interface materialization is disabled so the guest rule cannot invent a
+    # parallel spelling.
+    proxmox_interfaces = _load_proxmox_interfaces()
 
     cluster_info = validation.cluster or {}
     name_source = cluster_info.get("name_source")
@@ -601,6 +603,7 @@ def ingest_proxmox_platform(
                         "proxmox_observation_state": "complete",
                         "proxmox_observation_detail": build_observation_detail(state="complete", errors=[]),
                         "proxmox_lxc_rootfs": build_lxc_rootfs(guest) if guest_type == "lxc" else None,
+                        "proxmox_presence": proxmox_interfaces.PRESENCE_PRESENT,
                     }
                     vm_outcome = upsert_with_freshness(
                         existing=guest_match.obj,
@@ -678,6 +681,41 @@ def ingest_proxmox_platform(
                 guest_errors.extend(guest_non_terminal_errors)
 
     final_state = "partial" if platform_partial else "complete"
+    # Omission establishes absence only when this generation fully enumerated the same Cluster
+    # scope. Retain all last-known realization evidence; only presence and its evidence time
+    # move forward.
+    if final_state == "complete":
+        observed_guest_keys = {
+            (guest_type, guest.get("vmid"))
+            for guest_type, guests in (("qemu", validation.qemu_vms), ("lxc", validation.lxc_containers))
+            for guest in guests
+        }
+        try:
+            for existing_vm in vm_manager.filter(cluster=cluster):
+                guest_type = cf_get(existing_vm, "proxmox_guest_type")
+                vmid = cf_get(existing_vm, "proxmox_vmid")
+                if guest_type not in ("qemu", "lxc") or vmid is None or (guest_type, vmid) in observed_guest_keys:
+                    continue
+                existing_observed = parse_iso(cf_get(existing_vm, "proxmox_observed_at"))
+                if existing_observed is not None and existing_observed > validation.observed_at:
+                    continue
+                if cf_get(existing_vm, "proxmox_presence") == proxmox_interfaces.PRESENCE_ABSENT:
+                    continue
+                cf_set(existing_vm, "proxmox_presence", proxmox_interfaces.PRESENCE_ABSENT)
+                cf_set(existing_vm, "proxmox_observed_at", validation.observed_at.isoformat())
+                save_fn(existing_vm)
+                counts["vm"]["updated"] += 1
+                changed = changed_fields.setdefault(f"vm:{guest_type}:{vmid}", [])
+                for field_name in ("proxmox_presence", "proxmox_observed_at"):
+                    if field_name not in changed:
+                        changed.append(field_name)
+        except Exception as exc:  # noqa: BLE001 - failed sweep makes absence untrustworthy
+            platform_partial = True
+            final_state = "partial"
+            guest_errors.append({
+                "scope_kind": "platform", "scope_id": scope_key, "section": "guest_presence",
+                "code": getattr(exc, "code", None) or "guest_absence_sweep_failed",
+            })
     final_detail = build_observation_detail(state=final_state, errors=guest_errors)
     if cf_get(cluster, "proxmox_observation_state") != final_state or cf_get(cluster, "proxmox_observation_detail") != final_detail:
         cf_set(cluster, "proxmox_observation_state", final_state)

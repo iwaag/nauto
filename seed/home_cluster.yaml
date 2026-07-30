@@ -482,10 +482,11 @@ custom_fields:
   - key: "proxmox_presence"
     label: "Proxmox Presence"
     type: "text"
-    description: "present or absent, from complete config enumeration only"
+    description: "present or absent, from complete scoped guest or interface enumeration only"
     weight: 344
     content_types:
       - "virtualization.vminterface"
+      - "virtualization.virtualmachine"
   - key: "proxmox_managed_ip_evidence"
     label: "Proxmox Managed IP Evidence"
     type: "json"

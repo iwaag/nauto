@@ -533,7 +533,11 @@ class MultiGenerationMergeTests(unittest.TestCase):
 
         # Generation 2 only re-observes vmid=101 (e.g. vmid=102's guest list attempt failed upstream
         # and nodeutils/proxmox_ingest simply omitted it from this report).
-        facts_gen2 = _base_facts(observed_at=T1, qemu_vms=[_qemu_guest(vmid=101, name="renamed-101")])
+        facts_gen2 = _base_facts(
+            observed_at=T1,
+            collection={"state": "partial"},
+            qemu_vms=[_qemu_guest(vmid=101, name="renamed-101")],
+        )
         run_ingest(facts_gen2, env)
 
         updated_101 = next(v for v in env["vm_store"] if v.custom_field_data["proxmox_vmid"] == 101)
@@ -545,6 +549,56 @@ class MultiGenerationMergeTests(unittest.TestCase):
         self.assertEqual(untouched_102.pk, second_pk)
         self.assertEqual(untouched_102.custom_field_data["proxmox_observed_at"], second_observed_at)
         self.assertEqual(untouched_102.name, "second")
+
+
+class GuestPresenceTests(unittest.TestCase):
+    def test_complete_omission_marks_only_managed_guest_absent_and_retains_evidence(self) -> None:
+        env = make_env()
+        run_ingest(_base_facts(qemu_vms=[_qemu_guest(vmid=101), _qemu_guest(vmid=102, name="gone")]), env)
+        gone = next(vm for vm in env["vm_store"] if vm.custom_field_data["proxmox_vmid"] == 102)
+        gone.custom_field_data["unrelated"] = "retained"
+        gone.interfaces = ["retained"]
+        unmanaged = env["make_vm"](env["cluster_store"][0])
+        unmanaged.name = "manual"
+        env["save_fn"](unmanaged)
+
+        result = run_ingest(_base_facts(observed_at=T1, qemu_vms=[_qemu_guest(vmid=101)]), env)
+
+        present = next(vm for vm in env["vm_store"] if vm.custom_field_data.get("proxmox_vmid") == 101)
+        self.assertEqual(present.custom_field_data["proxmox_presence"], "present")
+        self.assertEqual(gone.custom_field_data["proxmox_presence"], "absent")
+        self.assertEqual(gone.custom_field_data["proxmox_observed_at"], T1)
+        self.assertEqual(gone.custom_field_data["unrelated"], "retained")
+        self.assertEqual(gone.interfaces, ["retained"])
+        self.assertNotIn("proxmox_presence", unmanaged.custom_field_data)
+        self.assertEqual(result["object_counts"]["vm"]["updated"], 2)
+
+    def test_partial_stale_different_scope_and_already_absent_never_repeat_absence_write(self) -> None:
+        env = make_env()
+        run_ingest(_base_facts(qemu_vms=[_qemu_guest(vmid=101), _qemu_guest(vmid=102, name="gone")]), env)
+        gone = next(vm for vm in env["vm_store"] if vm.custom_field_data["proxmox_vmid"] == 102)
+
+        partial = _base_facts(observed_at=T1, collection={"state": "partial"}, qemu_vms=[_qemu_guest(vmid=101)])
+        run_ingest(partial, env)
+        self.assertEqual(gone.custom_field_data["proxmox_presence"], "present")
+
+        complete = _base_facts(observed_at=T1, qemu_vms=[_qemu_guest(vmid=101)])
+        run_ingest(complete, env)
+        self.assertEqual(gone.custom_field_data["proxmox_presence"], "absent")
+        save_count = gone.custom_field_data["proxmox_observed_at"]
+        repeated = run_ingest(_base_facts(observed_at="2026-07-24T12:03:00+00:00", qemu_vms=[_qemu_guest(vmid=101)]), env)
+        self.assertEqual(gone.custom_field_data["proxmox_observed_at"], save_count)
+        self.assertEqual(repeated["object_counts"]["vm"]["updated"], 1)
+
+        other_cluster = FakeModel(cluster_type=env["cluster_type"])
+        other_cluster._kind = "cluster"
+        env["save_fn"](other_cluster)
+        other_vm = env["make_vm"](other_cluster)
+        other_vm.name = "other"
+        other_vm.custom_field_data.update({"proxmox_guest_type": "qemu", "proxmox_vmid": 999, "proxmox_presence": "present", "proxmox_observed_at": T0})
+        env["save_fn"](other_vm)
+        run_ingest(_base_facts(observed_at="2026-07-24T12:04:00+00:00", qemu_vms=[_qemu_guest(vmid=101)]), env)
+        self.assertEqual(other_vm.custom_field_data["proxmox_presence"], "present")
 
 
 class TransactionTests(unittest.TestCase):
