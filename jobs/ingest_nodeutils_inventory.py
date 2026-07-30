@@ -14,7 +14,7 @@ from django.apps import apps
 from django.core.exceptions import FieldDoesNotExist
 from django.db import transaction
 
-from nautobot.apps.jobs import BooleanVar, IntegerVar, Job, StringVar
+from nautobot.apps.jobs import IntegerVar, Job, StringVar
 
 from . import proxmox_upsert
 from .nodeutils_ingest_batch import IngestError, ReportInput, load_report_batch, parse_report_content
@@ -133,10 +133,6 @@ class IngestNodeutilsInventory(Job):
         default=DEFAULT_POLICY_FILE,
         description="Path to nodeutils ingest policy YAML, relative to this repository root when not absolute.",
     )
-    dry_run = BooleanVar(
-        default=True,
-        description="Run the normal persistence path without committing target changes to Nautobot.",
-    )
     max_report_age_hours = IntegerVar(default=72, description="Reject reports older than this many hours.")
     max_report_bytes = IntegerVar(default=DEFAULT_MAX_REPORT_BYTES, description="Reject reports larger than this size.")
 
@@ -149,14 +145,12 @@ class IngestNodeutilsInventory(Job):
         self,
         report_batch: str,
         policy_file: str,
-        dry_run: bool,
         max_report_age_hours: int,
         max_report_bytes: int,
     ) -> None:
         policy = self.load_policy(policy_file)
         inputs = self.load_inputs(report_batch)
 
-        self.dry_run = dry_run
         results: list[dict[str, Any]] = []
         with transaction.atomic():
             for item in inputs:
@@ -175,20 +169,16 @@ class IngestNodeutilsInventory(Job):
                         }
                     )
 
-            summary_payload = build_ingest_summary(results, dry_run=dry_run)
+            summary_payload = build_ingest_summary(results)
             counts = summary_payload["summary"]
             self.logger.info(
-                "Batch summary: total=%s created=%s updated=%s unchanged=%s skipped=%s dry_run=%s",
+                "Batch summary: total=%s created=%s updated=%s unchanged=%s skipped=%s",
                 counts["total"],
                 counts["created"],
                 counts["updated"],
                 counts["unchanged"],
                 counts["skipped"],
-                dry_run,
             )
-            if dry_run:
-                transaction.set_rollback(True)
-                self.logger.warning("Dry run complete; no changes were committed.")
 
         self.create_file(
             "nodeutils-ingest-summary.json",
@@ -230,11 +220,7 @@ class IngestNodeutilsInventory(Job):
             raise IngestError(f"report is stale: collected_at={collected_at.isoformat()}")
 
     def ingest_report(self, report: dict[str, Any], policy: dict[str, Any], source: str) -> dict[str, Any]:
-        """Run one normal Device (+ Proxmox, when present) persistence path in both preview and
-        apply (sidefix1 problem_fixplan.md Section 5.2). ``dry_run`` no longer short-circuits
-        here: the owning ``run()`` transaction is the sole commit/rollback decision (Step 1), so
-        this method always executes the same sequence and always returns the same result shape.
-        """
+        """Run one normal Device (+ Proxmox, when present) persistence path."""
         identity = report["identity"]
         facts = report["facts"]
         device = self.match_device(identity)
@@ -493,7 +479,7 @@ class IngestNodeutilsInventory(Job):
             ip_related_elsewhere=ip_related_elsewhere,
             attach_ip=attach_ip,
             detach_ip=detach_ip,
-            sanitize_created_ids=self.dry_run,
+            sanitize_created_ids=False,
         )
         self.logger.info(
             "%s: Proxmox cluster=%s scope_key=%s state=%s counts=%s",

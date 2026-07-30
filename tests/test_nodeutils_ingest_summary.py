@@ -25,7 +25,7 @@ class BuildIngestSummaryTest(unittest.TestCase):
             {"source": "bad", "outcome": "skipped", "error": "invalid"},
         ]
 
-        payload = build_ingest_summary(rows, dry_run=False)
+        payload = build_ingest_summary(rows)
 
         self.assertEqual(payload["schema_version"], "nodeutils.ingest.summary.v1")
         self.assertEqual(
@@ -33,15 +33,10 @@ class BuildIngestSummaryTest(unittest.TestCase):
             {"total": 4, "created": 1, "updated": 1, "unchanged": 1, "skipped": 1},
         )
         self.assertEqual(payload["results"], rows)
-        self.assertFalse(payload["dry_run"])
-
-    def test_dry_run_is_explicit(self) -> None:
-        payload = build_ingest_summary([{"source": "x", "outcome": "created"}], dry_run=True)
-        self.assertTrue(payload["dry_run"])
 
     def test_rejects_unknown_outcome(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown ingest outcome"):
-            build_ingest_summary([{"source": "x", "outcome": "mystery"}], dry_run=False)
+            build_ingest_summary([{"source": "x", "outcome": "mystery"}])
 
 
 if __name__ == "__main__":

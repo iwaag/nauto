@@ -44,8 +44,8 @@ Nautobot-side workflow:
 2. Include `Jobs` in `provides`.
 3. Sync the repository.
 4. Enable `Home Inventory` / `Seed Home Cluster` from Jobs.
-5. Run `Seed Home Cluster` with `dry_run=true` first, then apply with `dry_run=false`.
-6. Run `Ingest Nodeutils Inventory` with `dry_run=true` against one report, inspect logs, then apply with `dry_run=false`.
+5. Run `Seed Home Cluster` to create/update the prerequisite objects.
+6. Run `Ingest Nodeutils Inventory` against one report and inspect its structured summary.
 
 If Job record updates do not appear in your environment, run `nautobot-server post_upgrade` on the Nautobot server and restart the web / worker processes as needed.
 
@@ -158,7 +158,6 @@ nodeutils reports.
 
 - `report_batch`: JSON/YAML text with a top-level `reports` list
 - `policy_file`: defaults to `seed/nodeutils_ingest.yaml`
-- `dry_run`: keep `true` first to log matched Device, action, report hash, and changed fields
 
 Example `report_batch`:
 
@@ -193,7 +192,7 @@ AI_RESOURCE_REVIEW_LOG_PROMPT=false
 
 The Job sends `think=false` to Ollama so thinking-capable models return the final review in `response` instead of spending the request on a separate `thinking` trace.
 
-After syncing this repository and running `Seed Home Cluster` with `dry_run=false`, create a Nautobot Job Hook for `dcim.device` create and update events and select the `AI Resource Review` job. The job stores the LLM output in `ai_resource_review` and skips regeneration when the selected source facts have not changed.
+After syncing this repository and running `Seed Home Cluster`, create a Nautobot Job Hook for `dcim.device` create and update events and select the `AI Resource Review` job. The job stores the LLM output in `ai_resource_review` and skips regeneration when the selected source facts have not changed.
 
 ## Current Scope
 

@@ -22,7 +22,7 @@ class NautoIngestRuntimeTests(TestCase):
     def setUpTestData(cls) -> None:
         seed = SeedHomeCluster()
         seed.logger = logging.getLogger("p3.nauto.seed")
-        seed.run("seed/home_cluster.yaml", dry_run=False, update_existing=True)
+        seed.run("seed/home_cluster.yaml", update_existing=True)
 
     def _report(self, *, collected_at: str | None = None) -> dict:
         return {
@@ -45,7 +45,7 @@ class NautoIngestRuntimeTests(TestCase):
             "self_reported": {"purpose": "p3-runtime"},
         }
 
-    def _run(self, report: dict, *, dry_run: bool = False) -> dict:
+    def _run(self, report: dict) -> dict:
         job = IngestNodeutilsInventory()
         job.logger = logging.getLogger("p3.nauto.ingest")
         files: list[tuple[str, str]] = []
@@ -53,7 +53,6 @@ class NautoIngestRuntimeTests(TestCase):
         job.run(
             report_batch=json.dumps({"reports": [{"source": "p3-runtime", "text": json.dumps(report)}]}),
             policy_file="seed/nodeutils_ingest.yaml",
-            dry_run=dry_run,
             max_report_age_hours=72,
             max_report_bytes=1024 * 1024,
         )

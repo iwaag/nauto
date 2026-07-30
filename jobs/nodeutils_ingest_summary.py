@@ -8,7 +8,7 @@ SCHEMA_VERSION = "nodeutils.ingest.summary.v1"
 OUTCOMES = ("created", "updated", "unchanged", "skipped")
 
 
-def build_ingest_summary(results: list[dict[str, Any]], *, dry_run: bool) -> dict[str, Any]:
+def build_ingest_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     counts = {outcome: 0 for outcome in OUTCOMES}
     normalized = []
     for row in results:
@@ -19,8 +19,6 @@ def build_ingest_summary(results: list[dict[str, Any]], *, dry_run: bool) -> dic
         normalized.append(dict(row))
     return {
         "schema_version": SCHEMA_VERSION,
-        "dry_run": bool(dry_run),
         "summary": {"total": len(normalized), **counts},
         "results": normalized,
     }
-

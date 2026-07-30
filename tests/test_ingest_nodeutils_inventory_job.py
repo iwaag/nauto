@@ -1,10 +1,4 @@
-"""sidefix1 problem_fixplan.md Section 6.1: covers the `ingest_report()` mode-boundary
-orchestration decision -- whether Proxmox handling is reached, and how -- for both an
-existing observer Device and a not-yet-persisted one, in both preview and apply.
-
-Originated as the Step 0 red test (`ingest_report()`'s early return at `dry_run=true`
-omitted `result["proxmox"]` entirely -- the Step 9 blocker recorded in `p2/problem.md`
-Section 4.1); Step 2 removed that early return, so the preview case below is now green.
+"""Covers the `ingest_report()` orchestration decision for existing and new Devices.
 
 Loads the real `jobs/ingest_nodeutils_inventory.py` module by file path (the nauto
 pattern for Django-free unit tests, per `test_nodeutils_ingest_batch.py`), stubbing
@@ -111,14 +105,13 @@ ingest_nodeutils_inventory = _load_module()
 
 
 class ExistingDeviceProxmoxSectionTest(unittest.TestCase):
-    """sidefix1 problem_fixplan.md Section 6.1 items 1-2 (existing Device, preview + apply)."""
+    """Existing Device Proxmox orchestration."""
 
-    def _make_job(self, dry_run: bool, *, device=None):
+    def _make_job(self, *, device=None):
         job = ingest_nodeutils_inventory.IngestNodeutilsInventory.__new__(
             ingest_nodeutils_inventory.IngestNodeutilsInventory
         )
         job.logger = MagicMock()
-        job.dry_run = dry_run
         job.ingest_proxmox = MagicMock(return_value={"sentinel": "proxmox-ran"})
         job.match_device = MagicMock(return_value=device if device is not None else MagicMock(name="existing-device", pk=1))
         job.resolve_policy_objects = MagicMock(return_value={})
@@ -134,12 +127,8 @@ class ExistingDeviceProxmoxSectionTest(unittest.TestCase):
             report["facts"]["proxmox"] = {"schema_version": "nodeutils.proxmox.v1"}
         return report
 
-    def test_preview_reaches_proxmox_ingest_for_an_existing_device(self) -> None:
-        """Formerly the sidefix1 Step 0 red test: `ingest_report()` used to return before
-        reading `facts.proxmox` when `dry_run=true`, so `ingest_proxmox()` was never called
-        and `result["proxmox"]` was absent -- the Step 9 blocker. Step 2 removed that early
-        return, so this now passes."""
-        job = self._make_job(dry_run=True)
+    def test_ingest_reaches_proxmox_for_an_existing_device(self) -> None:
+        job = self._make_job()
 
         result = job.ingest_report(self._report(), policy={}, source="test")
 
@@ -149,18 +138,9 @@ class ExistingDeviceProxmoxSectionTest(unittest.TestCase):
         self.assertIn("proxmox", result)
         self.assertEqual(result["proxmox"], {"sentinel": "proxmox-ran"})
 
-    def test_apply_reaches_proxmox_ingest_for_an_existing_device(self) -> None:
-        """Same core calls, same order, as preview (fixplan Section 6.1 item 2)."""
-        job = self._make_job(dry_run=False)
-
-        result = job.ingest_report(self._report(), policy={}, source="test")
-
-        job.ingest_proxmox.assert_called_once()
-        self.assertIn("proxmox", result)
-
     def test_device_only_report_is_unchanged_and_has_no_proxmox_section(self) -> None:
         """fixplan Section 6.1 item 3: Device-only input keeps its existing summary shape."""
-        job = self._make_job(dry_run=True)
+        job = self._make_job()
 
         result = job.ingest_report(self._report(with_proxmox=False), policy={}, source="test")
 
@@ -170,14 +150,13 @@ class ExistingDeviceProxmoxSectionTest(unittest.TestCase):
 
 
 class NewDeviceProxmoxPreconditionTest(unittest.TestCase):
-    """sidefix1 problem_fixplan.md Section 6.1 item 4 / Section 4.4 (new Device, preview)."""
+    """New Device Proxmox precondition."""
 
     def _make_job(self):
         job = ingest_nodeutils_inventory.IngestNodeutilsInventory.__new__(
             ingest_nodeutils_inventory.IngestNodeutilsInventory
         )
         job.logger = MagicMock()
-        job.dry_run = True
         created = MagicMock(name="new-device", pk=None)
         created.name = "aghub"
         job.ingest_proxmox = MagicMock(return_value={"sentinel": "proxmox-ran"})

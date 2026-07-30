@@ -63,7 +63,6 @@ class SeedHomeCluster(Job):
         default="seed/home_cluster.yaml",
         description="Path to the seed YAML, relative to the repository root when not absolute.",
     )
-    dry_run = BooleanVar(default=True, description="Log planned changes without writing to Nautobot.")
     update_existing = BooleanVar(default=True, description="Update existing objects when seed values differ.")
 
     class Meta:
@@ -71,13 +70,12 @@ class SeedHomeCluster(Job):
         description = "Create/update Location, Role, Status, Device Type, Tag, and Custom Field data from YAML."
         has_sensitive_variables = False
 
-    def run(self, seed_file: str, dry_run: bool, update_existing: bool) -> None:
+    def run(self, seed_file: str, update_existing: bool) -> None:
         seed_path = Path(seed_file)
         if not seed_path.is_absolute():
             seed_path = Path(__file__).resolve().parents[1] / seed_path
         data = yaml.safe_load(seed_path.read_text(encoding="utf-8")) or {}
 
-        self.dry_run = dry_run
         self.update_existing = update_existing
 
         with transaction.atomic():
@@ -91,9 +89,6 @@ class SeedHomeCluster(Job):
             self.ensure_tags(data.get("tags", []))
             self.ensure_custom_fields(data.get("custom_fields", []))
 
-            if dry_run:
-                transaction.set_rollback(True)
-                self.logger.warning("Dry run complete; no changes were committed.")
 
     def ensure_object(
         self,
@@ -110,9 +105,6 @@ class SeedHomeCluster(Job):
             for key, value in defaults.items():
                 if has_field(model, key):
                     setattr(obj, key, value)
-            if self.dry_run:
-                self.logger.info("Would create %s %s", kind, name)
-                return obj
             validated_save(obj)
             for field_name, values in (m2m or {}).items():
                 if hasattr(obj, field_name):
@@ -127,21 +119,15 @@ class SeedHomeCluster(Job):
                 changed = True
 
         if changed and self.update_existing:
-            if self.dry_run:
-                self.logger.info("Would update %s %s", kind, name)
-            else:
-                validated_save(obj)
-                self.logger.info("Updated %s %s", kind, name)
+            validated_save(obj)
+            self.logger.info("Updated %s %s", kind, name)
         else:
             self.logger.info("Exists %s %s", kind, name)
 
         if m2m and self.update_existing:
-            if self.dry_run:
-                self.logger.info("Would update %s relationships for %s %s", ", ".join(m2m), kind, name)
-            else:
-                for field_name, values in m2m.items():
-                    if hasattr(obj, field_name):
-                        getattr(obj, field_name).set([content_type(value) for value in values])
+            for field_name, values in m2m.items():
+                if hasattr(obj, field_name):
+                    getattr(obj, field_name).set([content_type(value) for value in values])
         return obj
 
     def ensure_statuses(self, items: list[dict[str, Any]]) -> dict[str, Any]:
