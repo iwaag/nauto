@@ -199,5 +199,54 @@ class NewDeviceProxmoxPreconditionTest(unittest.TestCase):
             self.assertEqual(set(kind_counts.values()), {0})
 
 
+class BuildCustomFieldsWorkspaceTest(unittest.TestCase):
+    """creative_workspace p1 Step 3: observed_workspaces pass-through into custom_fields."""
+
+    def _make_job(self):
+        job = ingest_nodeutils_inventory.IngestNodeutilsInventory.__new__(
+            ingest_nodeutils_inventory.IngestNodeutilsInventory
+        )
+        job.logger = MagicMock()
+        return job
+
+    def _report(self, workspaces: dict[str, Any] | None) -> dict[str, Any]:
+        report: dict[str, Any] = {
+            "collected_at": "2026-08-01T00:00:00+00:00",
+            "identity": {"hostname": "agpc"},
+            "self_reported": {},
+            "facts": {"services": {}},
+        }
+        if workspaces is not None:
+            report["facts"]["workspaces"] = workspaces
+        return report
+
+    def test_observed_workspaces_passes_through_unmodified(self) -> None:
+        job = self._make_job()
+        workspaces = {
+            "pj-voxel3dprint": {
+                "present": True,
+                "path": "/home/eiji/projects/pj-voxel3dprint",
+                "head_sha": "abc123",
+                "dirty": False,
+                "checked_at": "2026-08-01T00:00:00+00:00",
+            }
+        }
+
+        custom_fields = job.build_custom_fields(self._report(workspaces), policy={})
+
+        self.assertEqual(custom_fields["observed_workspaces"], workspaces)
+        self.assertEqual(
+            custom_fields["inventory_raw_json"]["facts"]["workspaces"], workspaces
+        )
+
+    def test_observed_workspaces_absent_when_no_hints_configured(self) -> None:
+        job = self._make_job()
+
+        custom_fields = job.build_custom_fields(self._report(None), policy={})
+
+        self.assertNotIn("observed_workspaces", custom_fields)
+        self.assertEqual(custom_fields["inventory_raw_json"]["facts"]["workspaces"], {})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -340,6 +340,13 @@ custom_fields:
     weight: 261
     content_types:
       - "dcim.device"
+  - key: "observed_workspaces"
+    label: "Observed Workspaces"
+    type: "json"
+    description: "Normalized development workspaces recently observed on this Device by nodeutils inventory collection"
+    weight: 262
+    content_types:
+      - "dcim.device"
 
   # Phase 2 Proxmox actual-ledger fields (devdocs/big/vm/p2/plan.md Section 5.4).
   - key: "proxmox_observer_device_id"

@@ -615,6 +615,7 @@ class IngestNodeutilsInventory(Job):
         gpu = facts.get("gpu") if isinstance(facts.get("gpu"), dict) else {}
         services = facts.get("services") if isinstance(facts.get("services"), dict) else {}
         docker = services.get("docker") if isinstance(services.get("docker"), dict) else {}
+        workspaces = facts.get("workspaces") if isinstance(facts.get("workspaces"), dict) else {}
 
         custom_fields = {
             "last_seen": report.get("collected_at"),
@@ -643,6 +644,7 @@ class IngestNodeutilsInventory(Job):
             "inventory_source": "nodeutils",
             "ai_resource_summary": self.make_ai_resource_summary(report),
             "observed_services": services.get("observed_services"),
+            "observed_workspaces": workspaces,
             "docker_engine_state": docker.get("engine_state"),
             "docker_container_running_count": docker.get("container_running_count"),
             "docker_container_total_count": docker.get("container_total_count"),
@@ -659,6 +661,7 @@ class IngestNodeutilsInventory(Job):
                     "network": network,
                     "software": facts.get("software"),
                     "services": services,
+                    "workspaces": workspaces,
                 },
             },
         }
