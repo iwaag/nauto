@@ -245,7 +245,7 @@ class BuildCustomFieldsWorkspaceTest(unittest.TestCase):
         custom_fields = job.build_custom_fields(self._report(None), policy={})
 
         self.assertNotIn("observed_workspaces", custom_fields)
-        self.assertEqual(custom_fields["inventory_raw_json"]["facts"]["workspaces"], {})
+        self.assertNotIn("workspaces", custom_fields["inventory_raw_json"]["facts"])
 
 
 if __name__ == "__main__":

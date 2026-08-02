@@ -654,15 +654,7 @@ class IngestNodeutilsInventory(Job):
             "service_inventory_updated_at": docker.get("updated_at"),
             "inventory_raw_json": {
                 "identity": identity,
-                "facts": {
-                    "hardware": facts.get("hardware"),
-                    "gpu": gpu,
-                    "disk": disk,
-                    "network": network,
-                    "software": facts.get("software"),
-                    "services": services,
-                    "workspaces": workspaces,
-                },
+                "facts": facts,
             },
         }
         if allowed.get("owner"):
