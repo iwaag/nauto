@@ -311,4 +311,50 @@ class SeedHomeCluster(Job):
                 {"content_types": item.get("content_types", ["dcim.device"])},
             )
             refs[key] = obj
+        self.prune_custom_fields(refs.keys())
         return refs
+
+    # devdocs/small/minimize_nauto/plan.md fact 2: the seed job only
+    # upserts, so a retired column needs an explicit prune. Bounded to the
+    # keys this seed job itself used to manage (Step 0's frozen deletion
+    # list plus the AI-review keys retired in Step 2) so it can never
+    # touch proxmox_* or a custom field owned by another app.
+    RETIRED_CUSTOM_FIELD_KEYS = frozenset(
+        {
+            "owner",
+            "purpose",
+            "os_name",
+            "os_version",
+            "kernel_version",
+            "architecture",
+            "cpu_model",
+            "cpu_cores",
+            "memory_gb",
+            "gpu_count",
+            "gpu_models",
+            "gpu_memory_gb",
+            "gpu_accelerator_summary",
+            "disk_total_gb",
+            "serial_number",
+            "ai_resource_summary",
+            "ai_resource_review",
+            "ai_resource_review_updated_at",
+            "agent_task_state",
+            "ai_resource_review_model",
+            "ai_resource_review_source_hash",
+            "docker_engine_state",
+            "docker_container_running_count",
+            "docker_container_total_count",
+            "docker_compose_projects",
+            "docker_published_ports",
+            "docker_service_summary",
+        }
+    )
+
+    def prune_custom_fields(self, current_keys) -> None:
+        CustomField = get_model("extras.CustomField")
+        stale_keys = self.RETIRED_CUSTOM_FIELD_KEYS - set(current_keys)
+        for obj in CustomField.objects.filter(key__in=stale_keys):
+            name = obj.key
+            obj.delete()
+            self.logger.info("Deleted retired custom field %s", name)

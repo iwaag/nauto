@@ -605,14 +605,8 @@ class IngestNodeutilsInventory(Job):
     def build_custom_fields(self, report: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
         facts = report["facts"]
         identity = report["identity"]
-        self_reported = report["self_reported"]
-        allowed = policy.get("allowed_self_reported") if isinstance(policy.get("allowed_self_reported"), dict) else {}
-        cpu = facts.get("cpu") if isinstance(facts.get("cpu"), dict) else {}
-        memory = facts.get("memory") if isinstance(facts.get("memory"), dict) else {}
-        disk = facts.get("disk") if isinstance(facts.get("disk"), dict) else {}
         network = facts.get("network") if isinstance(facts.get("network"), dict) else {}
         primary_interface = network.get("primary_interface") if isinstance(network.get("primary_interface"), dict) else {}
-        gpu = facts.get("gpu") if isinstance(facts.get("gpu"), dict) else {}
         services = facts.get("services") if isinstance(facts.get("services"), dict) else {}
         docker = services.get("docker") if isinstance(services.get("docker"), dict) else {}
         workspaces = facts.get("workspaces") if isinstance(facts.get("workspaces"), dict) else {}
@@ -623,19 +617,6 @@ class IngestNodeutilsInventory(Job):
             # normalizes it to the host_os enum in one place. Persisted source,
             # not a desired value.
             "host_system": facts.get("system"),
-            "os_name": facts.get("os_name"),
-            "os_version": facts.get("os_version"),
-            "kernel_version": facts.get("kernel_version"),
-            "architecture": facts.get("architecture"),
-            "cpu_model": cpu.get("model"),
-            "cpu_cores": cpu.get("logical_cores"),
-            "memory_gb": str(memory["total_gb"]) if memory.get("total_gb") is not None else None,
-            "gpu_count": gpu.get("count"),
-            "gpu_models": gpu.get("models"),
-            "gpu_memory_gb": str(gpu["memory_gb"]) if gpu.get("memory_gb") is not None else None,
-            "gpu_accelerator_summary": gpu.get("accelerator_summary"),
-            "disk_total_gb": str(disk["root_total_gb"]) if disk.get("root_total_gb") is not None else None,
-            "serial_number": identity.get("serial_number"),
             "primary_mac_address": network.get("primary_mac_address"),
             "primary_ip_address": network.get("primary_ip_address"),
             # Explicit primary interface name so the production exporter never
@@ -644,52 +625,13 @@ class IngestNodeutilsInventory(Job):
             "inventory_source": "nodeutils",
             "observed_services": services.get("observed_services"),
             "observed_workspaces": workspaces,
-            "docker_engine_state": docker.get("engine_state"),
-            "docker_container_running_count": docker.get("container_running_count"),
-            "docker_container_total_count": docker.get("container_total_count"),
-            "docker_compose_projects": ", ".join(docker.get("compose_projects") or []),
-            "docker_published_ports": ", ".join(docker.get("published_ports") or []),
-            "docker_service_summary": self.make_docker_service_summary(services),
             "service_inventory_updated_at": docker.get("updated_at"),
             "inventory_raw_json": {
                 "identity": identity,
                 "facts": facts,
             },
         }
-        if allowed.get("owner"):
-            custom_fields["owner"] = self_reported.get("owner")
-        if allowed.get("purpose"):
-            custom_fields["purpose"] = self_reported.get("purpose")
         return compact(custom_fields)
-
-    def make_docker_service_summary(self, services: dict[str, Any]) -> str | None:
-        docker = services.get("docker") if isinstance(services.get("docker"), dict) else {}
-        if not docker:
-            return None
-        important = docker.get("important_services") if isinstance(docker.get("important_services"), list) else []
-        service_bits = []
-        for item in important:
-            if not isinstance(item, dict):
-                continue
-            name = item.get("service") or item.get("name")
-            state = item.get("state")
-            ports = ",".join(item.get("ports") or [])
-            bit = str(name)
-            if state:
-                bit = f"{bit}:{state}"
-            if ports:
-                bit = f"{bit}@{ports}"
-            service_bits.append(bit)
-        fields = {
-            "engine": docker.get("engine_state"),
-            "containers": f"{docker.get('container_running_count')}/{docker.get('container_total_count')}"
-            if docker.get("container_running_count") is not None and docker.get("container_total_count") is not None
-            else None,
-            "compose": ",".join(docker.get("compose_projects") or []),
-            "ports": ",".join(docker.get("published_ports") or []),
-            "important": ",".join(service_bits),
-        }
-        return "; ".join(f"{key}={value}" for key, value in fields.items() if value not in (None, ""))
 
     def diff_device(self, device: Any, payload: dict[str, Any]) -> list[str]:
         changed = []
