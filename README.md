@@ -13,7 +13,6 @@ This repository is structured so it can be used as a Nautobot Git Repository tha
 ├── __init__.py
 ├── jobs
 │   ├── __init__.py
-│   ├── ai_resource_review.py
 │   ├── ingest_nodeutils_inventory.py
 │   └── seed_home_cluster.py
 └── seed
@@ -33,7 +32,6 @@ Nautobot Git Repository Jobs requirements:
 
 In this repository, [jobs/seed_home_cluster.py](jobs/seed_home_cluster.py) contains the Job logic and [jobs/__init__.py](jobs/__init__.py) is the registration point. `Seed Home Cluster` seeds native Nautobot prerequisites only (Location/Role/Status/Device Type/Tag/Custom Field data below); it does not import or write any nintent `IntentSource` or `DesiredService` row.
 [jobs/ingest_nodeutils_inventory.py](jobs/ingest_nodeutils_inventory.py) reads a batch of `nodeutils collect` reports from API input, validates them, applies [seed/nodeutils_ingest.yaml](seed/nodeutils_ingest.yaml), and creates or updates Devices with Nautobot-side credentials only.
-[jobs/ai_resource_review.py](jobs/ai_resource_review.py) contains a Job Hook Receiver that can call an Ollama-compatible LLM endpoint after Device inventory updates. The review includes service placement and Docker snapshot fields when they are present, but it should not be treated as a live capacity signal.
 Desired state is held in the Nautobot database. Submit desired-state changes through the authenticated
 batch endpoint (normally with `nctl desired apply`); this repository contains only reusable prerequisites
 and ingest policy.
@@ -179,20 +177,6 @@ For `nodeutils.inventory.v2`, nested
 `facts.services.observed_services.*.managed_files` metadata is retained
 unchanged in the existing `observed_services` custom field. This is digest/path/status/size/time
 metadata only; nauto does not store managed-file contents or create a separate applied-digest model.
-
-The AI resource review Job Hook uses these Nautobot server environment variables:
-
-```bash
-AI_RESOURCE_REVIEW_URL=http://localhost:11434/api/generate
-AI_RESOURCE_REVIEW_MODEL=llama3.1:8b
-AI_RESOURCE_REVIEW_TIMEOUT=30
-# Optional, for debugging prompt/model behavior. Logs a bounded prompt preview.
-AI_RESOURCE_REVIEW_LOG_PROMPT=false
-```
-
-The Job sends `think=false` to Ollama so thinking-capable models return the final review in `response` instead of spending the request on a separate `thinking` trace.
-
-After syncing this repository and running `Seed Home Cluster`, create a Nautobot Job Hook for `dcim.device` create and update events and select the `AI Resource Review` job. The job stores the LLM output in `ai_resource_review` and skips regeneration when the selected source facts have not changed.
 
 ## Current Scope
 

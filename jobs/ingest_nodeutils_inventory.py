@@ -642,7 +642,6 @@ class IngestNodeutilsInventory(Job):
             # has to inspect the unrestricted inventory_raw_json blob for it.
             "network_interface": primary_interface.get("name"),
             "inventory_source": "nodeutils",
-            "ai_resource_summary": self.make_ai_resource_summary(report),
             "observed_services": services.get("observed_services"),
             "observed_workspaces": workspaces,
             "docker_engine_state": docker.get("engine_state"),
@@ -662,35 +661,6 @@ class IngestNodeutilsInventory(Job):
         if allowed.get("purpose"):
             custom_fields["purpose"] = self_reported.get("purpose")
         return compact(custom_fields)
-
-    def make_ai_resource_summary(self, report: dict[str, Any]) -> str:
-        facts = report["facts"]
-        identity = report["identity"]
-        self_reported = report["self_reported"]
-        cpu = facts.get("cpu") if isinstance(facts.get("cpu"), dict) else {}
-        memory = facts.get("memory") if isinstance(facts.get("memory"), dict) else {}
-        disk = facts.get("disk") if isinstance(facts.get("disk"), dict) else {}
-        network = facts.get("network") if isinstance(facts.get("network"), dict) else {}
-        gpu = facts.get("gpu") if isinstance(facts.get("gpu"), dict) else {}
-        services = facts.get("services") if isinstance(facts.get("services"), dict) else {}
-
-        fields = {
-            "host": identity.get("hostname"),
-            "os": f"{facts.get('os_name')} {facts.get('os_version')}".strip(),
-            "arch": facts.get("architecture"),
-            "cpu": cpu.get("model"),
-            "cores": cpu.get("logical_cores"),
-            "memory_gb": memory.get("total_gb"),
-            "gpu": gpu.get("accelerator_summary"),
-            "disk_gb": disk.get("root_total_gb"),
-            "purpose": self_reported.get("purpose"),
-            "ip": network.get("primary_ip_address"),
-            "observed": ",".join(sorted((services.get("observed_services") or {}).keys()))
-            if isinstance(services.get("observed_services"), dict)
-            else None,
-            "docker": self.make_docker_service_summary(services),
-        }
-        return "; ".join(f"{key}={value}" for key, value in fields.items() if value not in (None, ""))
 
     def make_docker_service_summary(self, services: dict[str, Any]) -> str | None:
         docker = services.get("docker") if isinstance(services.get("docker"), dict) else {}
