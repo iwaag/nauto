@@ -58,44 +58,29 @@ The seed Job creates the main objects required by nodeutils inventory ingest:
 - Tag: `self-registered`, `home`
 - Device Custom Fields
 
-The Device Custom Fields include:
+The Device Custom Fields are a deliberately small allowlist: the 9
+`ACTUAL_FACT_FIELDS` deterministic processing (`nctl`) actually reads,
+plus `inventory_raw_json` as the catch-all raw store.
 
-- `owner`
-- `purpose`
 - `last_seen`
-- `os_name`
-- `os_version`
-- `kernel_version`
-- `architecture`
-- `cpu_model`
-- `cpu_cores`
-- `memory_gb`
-- `gpu_count`
-- `gpu_models`
-- `gpu_memory_gb`
-- `gpu_accelerator_summary`
-- `disk_total_gb`
-- `serial_number`
+- `host_system`
 - `primary_mac_address`
 - `primary_ip_address`
 - `network_interface`
-- `host_system`
 - `inventory_source`
-- `ai_resource_summary`
-- `agent_task_state`
-- `ai_resource_review`
-- `ai_resource_review_updated_at`
-- `ai_resource_review_model`
-- `ai_resource_review_source_hash`
 - `observed_services`
-- `docker_engine_state`
-- `docker_container_running_count`
-- `docker_container_total_count`
-- `docker_compose_projects`
-- `docker_published_ports`
-- `docker_service_summary`
 - `service_inventory_updated_at`
+- `observed_workspaces`
 - `inventory_raw_json`
+
+Everything else nodeutils collects (OS, CPU, memory, GPU, disk, Docker
+service detail, etc.) lives only in `inventory_raw_json.facts`, which
+stores the full nodeutils `facts` dict as-is — nothing is cherry-picked
+out of it. See `devdocs/small/minimize_nauto/` for the rationale and
+migration history: individual columns for observation data that no
+deterministic processing consumes were retired in favor of this
+allowlist, since `nctl` never reads `inventory_raw_json` (documented
+policy) and no other consumer needed dedicated columns.
 
 If the required Custom Fields do not exist in Nautobot, Device create/update calls can fail.
 
