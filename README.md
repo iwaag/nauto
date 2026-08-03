@@ -115,8 +115,8 @@ overrides, use the batch endpoint through `nctl desired apply`; see the root
 README for the private-file workflow. Ordinary observed Linux/macOS hosts do
 not need an override row: nctl derives policy and OS from fresh nodeutils facts
 and selects a unique usable local endpoint (or unique primary). Keep override
-rows only for genuine exceptions such as declared HAOS, non-default
-power/laptop behavior, a non-default Ansible port, or a forced endpoint/path.
+rows only for genuine exceptions such as non-default power/laptop behavior,
+a non-default Ansible port, or a forced endpoint/path.
 
 Bootstrap inventory generation uses only the eligible desired nodes and their
 mDNS endpoints. Production service groups come exclusively from active
