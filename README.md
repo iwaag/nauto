@@ -79,8 +79,10 @@ stores the full nodeutils `facts` dict as-is — nothing is cherry-picked
 out of it. See `devdocs/small/minimize_nauto/` for the rationale and
 migration history: individual columns for observation data that no
 deterministic processing consumes were retired in favor of this
-allowlist, since `nctl` never reads `inventory_raw_json` (documented
-policy) and no other consumer needed dedicated columns.
+allowlist. `nctl`'s deterministic processing (drift, planning) reads only
+the allowlisted columns (recommended practice); display/export paths such
+as `nctl actual --detail` may pass `inventory_raw_json.facts` through
+as-is. No other consumer needed dedicated columns.
 
 If the required Custom Fields do not exist in Nautobot, Device create/update calls can fail.
 
