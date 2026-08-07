@@ -59,6 +59,8 @@ _STORAGE_SCOPE_KEYS = {
     "items",
 }
 _STORAGE_ITEM_KEYS = {"volid", "content", "format", "size_bytes"}
+# Closed set of accepted storage-content scope types (matches nodeutils' collector).
+STORAGE_CONTENT_TYPES = {"vztmpl", "iso"}
 _NAME_SOURCES = {"proxmox_cluster_name", "standalone_node_fallback"}
 
 
@@ -139,7 +141,7 @@ def _validate_storage_scope(scope: dict[str, Any]) -> tuple[bool, dict[str, str]
     scope_id = f"{node}:{storage}:{scope.get('content_type')}"
     if not isinstance(scope, dict) or set(scope) - _STORAGE_SCOPE_KEYS:
         return False, _error("storage", scope_id, "storage_inventory", "unknown_key")
-    if scope.get("content_type") != "vztmpl":
+    if scope.get("content_type") not in STORAGE_CONTENT_TYPES:
         return False, _error("storage", scope_id, "storage_inventory", "invalid_content_type")
     items = scope.get("items")
     if not isinstance(items, list):

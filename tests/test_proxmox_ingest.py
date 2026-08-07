@@ -203,11 +203,34 @@ class StorageContentValidationTests(unittest.TestCase):
         self.assertEqual(result.storage_content, [])
         self.assertEqual(result.errors[0]["code"], "malformed_storage_item")
 
-    def test_non_vztmpl_content_type_is_rejected(self) -> None:
-        facts = _base_facts(storage_content=[self._scope(content_type="iso")])
+    def test_iso_content_type_is_accepted(self) -> None:
+        iso_scope = self._scope(
+            content_type="iso",
+            items=[
+                {
+                    "volid": "local:iso/ubuntu-24.04.2-live-server-amd64.iso",
+                    "content": "iso",
+                    "format": "iso",
+                    "size_bytes": 3213064192,
+                }
+            ],
+        )
+        facts = _base_facts(storage_content=[iso_scope])
+        result = proxmox_ingest.validate_proxmox_facts(facts, received_at=RECEIVED_AT)
+        self.assertTrue(result.valid)
+        self.assertEqual(result.state, "complete")
+        self.assertEqual(result.storage_content[0]["content_type"], "iso")
+        self.assertEqual(
+            result.storage_content[0]["items"][0]["volid"],
+            "local:iso/ubuntu-24.04.2-live-server-amd64.iso",
+        )
+
+    def test_unknown_content_type_is_rejected(self) -> None:
+        facts = _base_facts(storage_content=[self._scope(content_type="backup")])
         result = proxmox_ingest.validate_proxmox_facts(facts, received_at=RECEIVED_AT)
         self.assertEqual(result.state, "partial")
         self.assertEqual(result.storage_content, [])
+        self.assertEqual(result.errors[0]["code"], "invalid_content_type")
 
 
 class OneBadGuestIsolationTests(unittest.TestCase):
