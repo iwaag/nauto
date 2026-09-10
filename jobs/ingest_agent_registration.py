@@ -1,6 +1,6 @@
 """Ingest observed agag agent registration into nintent's ObservedAgentRegistration rows.
 
-The collector (`nctl agents observe`) holds the Zulip and Plane credentials and
+The collector (`nctl agents observe`) holds the Zulip credential and
 does the reading; this Job holds none and only writes what it was handed, keyed
 by `DesiredAgent.slug`. A payload row naming an unknown agent is skipped with a
 reason rather than creating an agent out of an observation — desired state is
@@ -31,7 +31,7 @@ SUMMARY_FILE = "agent-registration-ingest-summary.json"
 
 
 class IngestAgentRegistration(Job):
-    """Replace each named agent's observed Zulip/Plane registration."""
+    """Replace each named agent's observed Zulip registration."""
 
     payload = StringVar(
         default="",
@@ -40,7 +40,7 @@ class IngestAgentRegistration(Job):
 
     class Meta:
         name = "Ingest Agent Registration"
-        description = "Write observed Zulip/Plane agent registration collected by nctl."
+        description = "Write observed Zulip agent registration collected by nctl."
         has_sensitive_variables = False
 
     def run(self, payload: str) -> None:

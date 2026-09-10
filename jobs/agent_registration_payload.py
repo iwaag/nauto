@@ -18,9 +18,6 @@ OBSERVED_FIELDS = (
     "zulip_user_id",
     "zulip_is_active",
     "zulip_channels",
-    "plane_present",
-    "plane_user_id",
-    "plane_role",
 )
 
 
